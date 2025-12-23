@@ -296,6 +296,64 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             self.r_fld,
         ]
 
+
+    def _apply_beamloading_shaper_on_qbunch(
+        self,
+        xi_min: float,
+        xi_max: float,
+        scale: Union[float, np.ndarray],
+        smooth: int = 0,
+    ):
+        """
+        Multiply q_bunch(ξ,r) by a scale factor in a given ξ interval.
+
+        Parameters
+        ----------
+        xi_min, xi_max : float
+        Interval in xi (same units as self.xi_fld, i.e. meters in Wake-T).
+        This selects slices whose cell centers fall in [xi_min, xi_max].
+        scale : float or 1D array
+        If float: uniform scaling in the interval.
+        If array: per-slice scaling for the selected slices (length = n_sel).
+        smooth : int
+        If >0, apply a simple moving-average smoothing to the *scale* along xi
+        before multiplying. (Helps avoid sharp Ez spikes.)
+        """
+        # Interior xi cell centers (exclude guards)
+        xi_centers = self.xi_fld[2:-2]          # shape (n_xi,)
+        sel = (xi_centers >= xi_min) & (xi_centers <= xi_max)
+        idx = np.where(sel)[0]                  # indices in 0..n_xi-1
+
+        if idx.size == 0:
+            return
+
+        if np.isscalar(scale):
+            s = np.full(idx.size, float(scale), dtype=float)
+        else:
+            s = np.asarray(scale, dtype=float)
+            if s.size != idx.size:
+                raise ValueError(
+                    f"scale has length {s.size}, but selected {idx.size} xi slices."
+                )
+
+        if smooth and smooth > 0 and s.size > 2:
+            # moving average on s
+            k = int(smooth)
+            kernel = np.ones(2 * k + 1, dtype=float)
+            kernel /= kernel.sum()
+            s_pad = np.pad(s, (k, k), mode="edge")
+            s = np.convolve(s_pad, kernel, mode="valid")
+
+        # Apply scaling on q_bunch for all r (including guard r cells if you want)
+        # q_bunch is (n_xi+4, n_r+4). Interior r is 2:-2.
+        for ii, si in zip(idx, s):
+            self.q_bunch[2 + ii, 2:-2] *= si
+
+
+
+
+
+
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):
         radial_density = self._get_radial_density(self.t * ct.c)
 
@@ -431,6 +489,18 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.p_shape,
                     self.q_bunch,
                 )
+
+            print(self.xi_fld[2:-2])
+            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+
+
+            # ---- INSERT beam-loading shaper HERE ----
+            # Example: increase witness charge by 5% between xi=-200um and -100um
+            self._apply_beamloading_shaper_on_qbunch(xi_min=-150e-6, xi_max=50e-6,
+                                                      scale=0.3, smooth=0)
+            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+
+
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
             bunch_source_arrays.append(self.b_t_bunch)
             bunch_source_xi_indices.append(np.arange(self.n_xi))
