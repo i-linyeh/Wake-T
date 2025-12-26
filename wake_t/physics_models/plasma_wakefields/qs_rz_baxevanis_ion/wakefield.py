@@ -416,6 +416,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         if bunches_without_grid or deposit_outliers_on_base_grid:
             self._reset_bunch_arrays()
             for bunch in bunches_without_grid:
+                xi_target = -64e-6    
+                xi0 = self.xi_fld[2]  # first physical slice
+                i0 = int(np.round((xi_target - xi0) / self.dxi))                
+                q_scale_xi = np.ones(self.n_xi)
+                q_scale_xi[i0] *= 0.3
                 deposit_bunch_charge(
                     bunch.x,
                     bunch.y,
@@ -430,7 +435,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.dxi,
                     self.p_shape,
                     self.q_bunch,
-                )
+                    use_q_shaper=True,
+                    q_scale_xi=q_scale_xi,
+                    xi_min_shaper=xi0,
+                    )
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
             bunch_source_arrays.append(self.b_t_bunch)
             bunch_source_xi_indices.append(np.arange(self.n_xi))
