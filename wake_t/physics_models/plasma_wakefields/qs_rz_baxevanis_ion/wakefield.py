@@ -420,7 +420,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 xi0 = self.xi_fld[2]  # first physical slice
                 i0 = int(np.round((xi_target - xi0) / self.dxi))                
                 q_scale_xi = np.ones(self.n_xi)
-                q_scale_xi[i0] *= 0.3
+                q_scale_xi[i0] *= 1
                 deposit_bunch_charge(
                     bunch.x,
                     bunch.y,
