@@ -101,7 +101,7 @@ def deposit_bunch_charge(
     xi0 = xi_min_shaper
 
     for i in range(n_part):
-        qi = q[i]
+#        qi = q[i]
 
         if use_q_shaper:
             # IMPORTANT: z must be the coordinate consistent with xi_grid.
@@ -113,9 +113,9 @@ def deposit_bunch_charge(
             elif idx > n_xi - 1:
                 idx = n_xi - 1
 
-            qi *= q_scale_xi[idx]
+            q[i] *= q_scale_xi[idx]
 
-        w[i] = qi * k
+        w[i] = q[i] * k
 
 
 
