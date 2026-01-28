@@ -420,13 +420,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 xi0 = self.xi_fld[2]  # first physical slice
                 i0 = int(np.round((xi_target - xi0) / self.dxi))                
                 q_scale_xi = np.ones(self.n_xi)
-                q_scale_xi[:] *= 0.1
+                q_scale_xi[i0] *= 0.1
                 print(q_scale_xi)
+
+                idx = np.floor((bunch.xi - xi0)/self.dxi).astype(np.int64)
+                idx = np.clip(idx, 0, self.n_xi-1)
+                bunch.w *= q_scale_xi[idx]   # permanent
                 #print(max(bunch.q))
                 q1 = bunch.q
-                print("id(q1)=", id(q1), "max=", q1.max())
-                print([name for name in dir(bunch) if 'q' in name.lower()])
-                print(bunch.__dict__.keys())
+                #print("id(q1)=", id(q1), "max=", q1.max())
+                #print([name for name in dir(bunch) if 'q' in name.lower()])
+                #print(bunch.__dict__.keys())
                 deposit_bunch_charge(
                     bunch.x,
                     bunch.y,
@@ -441,13 +445,14 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.dxi,
                     self.p_shape,
                     self.q_bunch,
-                    use_q_shaper=True,
-                    q_scale_xi=q_scale_xi,
-                    xi_min_shaper=xi0,
+#                    use_q_shaper=False,
+#                    q_scale_xi=q_scale_xi,
+#                    xi_min_shaper=xi0,
                     )
                 #print(max(bunch.q))
-                print("after: q1.max() =", q1.max())
-                print("after: bunch.q.max() =", bunch.q.max())
+                #print("after: q1.max() =", q1.max())
+                #print("after: bunch.q.max() =", bunch.q.max())
+            print(self.q_bunch)
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
             bunch_source_arrays.append(self.b_t_bunch)
             bunch_source_xi_indices.append(np.arange(self.n_xi))

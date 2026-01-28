@@ -56,9 +56,9 @@ def deposit_bunch_charge(
     p_shape,
     q_bunch,
     r_min_deposit=0.0,
-    use_q_shaper=False,        # NEW: bool flag
-    q_scale_xi=np.empty(0),    # NEW: always an array; ignored if flag False
-    xi_min_shaper=0.0,         # NEW: always a float; set by caller
+#    use_q_shaper=False,        # NEW: bool flag
+#    q_scale_xi=np.empty(0),    # NEW: always an array; ignored if flag False
+#    xi_min_shaper=0.0,         # NEW: always a float; set by caller
 
 ):
     """
@@ -93,27 +93,27 @@ def deposit_bunch_charge(
     s_d = ct.c / np.sqrt(ct.e**2 * n_p / (ct.m_e * ct.epsilon_0))
     k = 1.0 / (2 * np.pi * ct.e * dr * dxi * s_d * n_p)
     w = np.empty(n_part)
-#    for i in range(n_part):
-#        w[i] = q[i] * k
-
-
-    # reference for binning
-    xi0 = xi_min_shaper
-
     for i in range(n_part):
-#        qi = q[i]
+        w[i] = q[i] * k
 
-        if use_q_shaper:
-            # IMPORTANT: z must be the coordinate consistent with xi_grid.
-            xi_part = z[i]
-            idx = int((xi_part - xi0) / dxi)
 
-            if idx < 0:
-                idx = 0
-            elif idx > n_xi - 1:
-                idx = n_xi - 1
-
-            q[i] *= q_scale_xi[idx]
+#    # reference for binning
+#    xi0 = xi_min_shaper
+#
+#    for i in range(n_part):
+##        qi = q[i]
+#
+#        if use_q_shaper:
+#            # IMPORTANT: z must be the coordinate consistent with xi_grid.
+#            xi_part = z[i]
+#            idx = int((xi_part - xi0) / dxi)
+#
+#            if idx < 0:
+#                idx = 0
+#            elif idx > n_xi - 1:
+#                idx = n_xi - 1
+#
+#            q[i] *= q_scale_xi[idx]
 
         w[i] = q[i] * k
 
