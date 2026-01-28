@@ -369,6 +369,14 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # For now pick bunches[0]; change selection logic as you like.
         bunch = bunches[0]
 
+
+        # store parameters for one-time shaper (or compute them)
+        self._beamload_xi_min = -64e-6
+        self._beamload_xi_max = -64e-6 + 1 * self.dxi
+        self._beamload_scale  = 1.0
+        self._beamload_smooth = 0
+
+
         # Example: build q_scale_xi aligned to the base xi grid (interior indices).
         # You must decide the desired profile; here is a placeholder.
         n_xi = self.n_xi
@@ -385,6 +393,24 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         #self.xi_min_shaper = self.xi_fld[2]   # consistent with interior indexing
         #self.use_q_shaper = True              # we have shaper data now
         print("hello")
+
+
+
+    def _apply_beamloading_once_on_deposited_qbunch(self):
+        # optional debug
+        # print(self.xi_fld); print(self.dxi); print([np.max(self.q_bunch), np.min(self.q_bunch)])
+    
+        self._apply_beamloading_shaper_on_qbunch(
+            xi_min=self._beamload_xi_min,
+            xi_max=self._beamload_xi_max,
+            scale=self._beamload_scale,
+            smooth=self._beamload_smooth,
+        )
+    
+        # optional debug
+        # print([np.max(self.q_bunch), np.min(self.q_bunch)])
+
+
 
 
 
@@ -530,16 +556,20 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.q_bunch,
                 )
 
-            print(self.xi_fld)
-            print(self.dxi)
-            print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
-
-            # ---- INSERT beam-loading shaper HERE ----
-            # Example: increase witness charge by 5% between xi=-200um and -100um
-            self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
-                                                      scale=1, smooth=0)
-            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+            # ---- beam-loading only on first solve ----
+            if self._apply_beamloading_this_solve:
+                print(self.xi_fld)
+                print(self.dxi)
+                print([np.max(self.q_bunch),np.min(self.q_bunch)])
+    
+    
+                # ---- INSERT beam-loading shaper HERE ----
+                # Example: increase witness charge by 5% between xi=-200um and -100um
+                self._apply_beamloading_once_on_deposited_qbunch()
+                #self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
+                #                                          scale=1, smooth=0)
+                print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
@@ -587,9 +617,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         )
 
 
-        E_z = self.fld_arrays[5]
-        E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
-        print(E_z_phys[:,0])
+
+        if self._apply_beamloading_this_solve:
+            E_z = self.fld_arrays[5]
+            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
+            print(E_z_phys[:,0])
 
 
 
