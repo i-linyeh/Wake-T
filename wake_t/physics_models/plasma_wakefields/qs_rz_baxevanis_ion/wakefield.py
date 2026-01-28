@@ -278,6 +278,14 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             model_name="quasistatic_2d_ion",
         )
 
+
+        # --- one-time init & one-time application flags ---
+        self._did_init_ic = False              # init hook has been executed?
+        self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
+
+
+
+
     def _initialize_properties(self, bunches):
         super()._initialize_properties(bunches)
         # Add bunch source array (needed if not using adaptive grids).
@@ -351,10 +359,42 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+    def _init_initial_condition_once(self, bunches: List[ParticleBunch]):
+        """
+        Run exactly once, at the beginning of the first wake solve.
+
+        Use this to precompute any arrays for beam-loading shaping.
+        """
+        # Choose which bunch defines the beam-loading target (often the witness or driver).
+        # For now pick bunches[0]; change selection logic as you like.
+        bunch = bunches[0]
+
+        # Example: build q_scale_xi aligned to the base xi grid (interior indices).
+        # You must decide the desired profile; here is a placeholder.
+        n_xi = self.n_xi
+        q_scale_xi = np.ones(n_xi, dtype=np.float64)
+
+        # --- USER LOGIC GOES HERE ---
+        # e.g. q_scale_xi[k] = ...
+        # using self.xi_fld[2:-2] (interior xi nodes) if needed:
+        # xi_centers = self.xi_fld[2:-2]
+        # q_scale_xi = some_function(xi_centers, bunch, ...)
+        # --------------------------------
+
+        #self.q_scale_xi = q_scale_xi
+        #self.xi_min_shaper = self.xi_fld[2]   # consistent with interior indexing
+        #self.use_q_shaper = True              # we have shaper data now
+        print("hello")
 
 
 
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):
+        # --- initial-condition-only init ---
+        if not self._did_init_ic:
+            self._init_initial_condition_once(bunches)
+            self._did_init_ic = True
+
+
         radial_density = self._get_radial_density(self.t * ct.c)
 
         # Get square of laser envelope
@@ -490,14 +530,15 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.q_bunch,
                 )
 
-            print(self.xi_fld[2:-2])
+            print(self.xi_fld)
+            print(self.dxi)
             print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
             # ---- INSERT beam-loading shaper HERE ----
             # Example: increase witness charge by 5% between xi=-200um and -100um
-            self._apply_beamloading_shaper_on_qbunch(xi_min=-150e-6, xi_max=50e-6,
-                                                      scale=0.3, smooth=0)
+            self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
+                                                      scale=1, smooth=0)
             print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
@@ -545,6 +586,14 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             particle_diags=self.particle_diags,
         )
 
+
+        E_z = self.fld_arrays[5]
+        E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
+        print(E_z_phys[:,0])
+
+
+
+
         # Add bunch density to total density.
         if calculate_rho:
             rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
@@ -554,6 +603,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         if self.use_adaptive_grids:
             for _, grid in self.bunch_grids.items():
                 grid.calculate_fields(self.n_p, self.pp)
+
+        # After first wake solve, disable one-time beam-loading effect
+        if self._apply_beamloading_this_solve:
+            self._apply_beamloading_this_solve = False
+
+
+
 
     def _reset_bunch_arrays(self):
         """Reset to zero the bunch arrays of the base grid."""
