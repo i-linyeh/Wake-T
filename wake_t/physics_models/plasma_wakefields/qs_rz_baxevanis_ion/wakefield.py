@@ -430,6 +430,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         Leaves q_bunch / b_t_bunch / fld_arrays in final consistent state.
         """
 
+
+        if len(bunch_source_arrays) == 0:
+            bunch_source_arrays.append(self.b_t_bunch)
+            bunch_source_xi_indices.append(np.arange(self.n_xi))
+    
+            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+            bunch_source_metadata.append(
+                np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+            )
+
+
         N_ITER = 2
         
         for _ in range(N_ITER):   # placeholder
@@ -464,20 +475,25 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
     
-            bunch_source_arrays.append(self.b_t_bunch)
-            bunch_source_xi_indices.append(np.arange(self.n_xi))
+#            bunch_source_arrays.append(self.b_t_bunch)
+#            bunch_source_xi_indices.append(np.arange(self.n_xi))
+#
+#            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+#            bunch_source_metadata.append(
+#                np.array(
+#                    [
+#                        self.r_fld[0],
+#                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+#                        self.dr,
+#                    ]
+#                )
+#                / s_d
+#            )
 
-            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
-            bunch_source_metadata.append(
-                np.array(
-                    [
-                        self.r_fld[0],
-                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-                        self.dr,
-                    ]
-                )
-                / s_d
-            )
+
+
+            # overwrite the existing base-grid slot (index 0)
+            bunch_source_arrays[0] = self.b_t_bunch
 
 
             # Calculate rho only if requested in the diagnostics.
