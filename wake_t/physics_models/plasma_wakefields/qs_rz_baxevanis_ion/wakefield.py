@@ -15,7 +15,7 @@ from wake_t.physics_models.laser.laser_pulse import LaserPulse
 from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 
-from wake_t.particles.deposition import inverse_deposit_3d_distribution
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
 
 
 class Quasistatic2DWakefieldIon(RZWakefield):
@@ -425,7 +425,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                                    store_plasma_history,
                                    bunch_source_arrays,
                                    bunch_source_xi_indices,
-                                   bunch_source_metadata):
+                                   bunch_source_metadata,
+                                   bunches: List[ParticleBunch]):
         """
         Runs ONLY ONCE.
         May call calculate_wakefields multiple times internally.
@@ -551,16 +552,15 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-
-        w_back, _ = inverse_deposit_3d_distribution(
-            z, x, y,
-            z_min, r_min,
-            nz, nr, dz, dr,
-            rho,
+        q_new, _ = inverse_deposit_3d_distribution(
+            bunches[0].xi, bunches[0].x, bunches[0].y,
+            self.xi_fld[0], self.r_fld[0],
+            self.n_xi, self.n_r, self.dxi, self.dr,
+            self.q_bunch,
             p_shape="cubic",
         )
 
-
+        bunches[0].w = np.abs(q_new/bunches[0].q_species)
 
 
 
@@ -722,7 +722,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 #                print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
-
+            print(bunches[0].w)
             if not self._initial_condition_done:
                 # ---- INITIAL CONDITION ONLY ----
                 self._beamloading_initial_condition(
@@ -732,7 +732,12 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     bunch_source_arrays,
                     bunch_source_xi_indices,
                     bunch_source_metadata,
-                )
+                    bunches
+                    )
+
+
+            print(bunches[0].w)
+            
 
 
             if self._initial_condition_done:
