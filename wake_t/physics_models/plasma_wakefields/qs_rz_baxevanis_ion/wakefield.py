@@ -280,9 +280,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
         # --- one-time init & one-time application flags ---
-        self._did_init_ic = False              # init hook has been executed?
-        self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
-
+        #self._did_init_ic = False              # init hook has been executed?
+        #self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
+        self._initial_condition_done = False
 
 
 
@@ -359,40 +359,40 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-    def _init_initial_condition_once(self, bunches: List[ParticleBunch]):
-        """
-        Run exactly once, at the beginning of the first wake solve.
-
-        Use this to precompute any arrays for beam-loading shaping.
-        """
-        # Choose which bunch defines the beam-loading target (often the witness or driver).
-        # For now pick bunches[0]; change selection logic as you like.
-        bunch = bunches[0]
-
-
-        # store parameters for one-time shaper (or compute them)
-        self._beamload_xi_min = -64e-6
-        self._beamload_xi_max = -64e-6 + 1 * self.dxi
-        self._beamload_scale  = 1.0
-        self._beamload_smooth = 0
-
-
-        # Example: build q_scale_xi aligned to the base xi grid (interior indices).
-        # You must decide the desired profile; here is a placeholder.
-        n_xi = self.n_xi
-        q_scale_xi = np.ones(n_xi, dtype=np.float64)
-
-        # --- USER LOGIC GOES HERE ---
-        # e.g. q_scale_xi[k] = ...
-        # using self.xi_fld[2:-2] (interior xi nodes) if needed:
-        # xi_centers = self.xi_fld[2:-2]
-        # q_scale_xi = some_function(xi_centers, bunch, ...)
-        # --------------------------------
-
-        #self.q_scale_xi = q_scale_xi
-        #self.xi_min_shaper = self.xi_fld[2]   # consistent with interior indexing
-        #self.use_q_shaper = True              # we have shaper data now
-        print("hello")
+#    def _init_initial_condition_once(self, bunches: List[ParticleBunch]):
+#        """
+#        Run exactly once, at the beginning of the first wake solve.
+#
+#        Use this to precompute any arrays for beam-loading shaping.
+#        """
+#        # Choose which bunch defines the beam-loading target (often the witness or driver).
+#        # For now pick bunches[0]; change selection logic as you like.
+#        bunch = bunches[0]
+#
+#
+#        # store parameters for one-time shaper (or compute them)
+#        self._beamload_xi_min = -64e-6
+#        self._beamload_xi_max = -64e-6 + 1 * self.dxi
+#        self._beamload_scale  = 1.0
+#        self._beamload_smooth = 0
+#
+#
+#        # Example: build q_scale_xi aligned to the base xi grid (interior indices).
+#        # You must decide the desired profile; here is a placeholder.
+#        n_xi = self.n_xi
+#        q_scale_xi = np.ones(n_xi, dtype=np.float64)
+#
+#        # --- USER LOGIC GOES HERE ---
+#        # e.g. q_scale_xi[k] = ...
+#        # using self.xi_fld[2:-2] (interior xi nodes) if needed:
+#        # xi_centers = self.xi_fld[2:-2]
+#        # q_scale_xi = some_function(xi_centers, bunch, ...)
+#        # --------------------------------
+#
+#        #self.q_scale_xi = q_scale_xi
+#        #self.xi_min_shaper = self.xi_fld[2]   # consistent with interior indexing
+#        #self.use_q_shaper = True              # we have shaper data now
+#        print("hello")
 
 
 
@@ -400,6 +400,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # optional debug
         # print(self.xi_fld); print(self.dxi); print([np.max(self.q_bunch), np.min(self.q_bunch)])
     
+        self._beamload_xi_min = -64e-6
+        self._beamload_xi_max = -64e-6 + 5 * self.dxi
+        self._beamload_scale  = 0.3 
+        self._beamload_smooth = 0
         self._apply_beamloading_shaper_on_qbunch(
             xi_min=self._beamload_xi_min,
             xi_max=self._beamload_xi_max,
@@ -413,12 +417,129 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+    def _beamloading_initial_condition(self,
+                                   laser_a2,
+                                   radial_density,
+                                   store_plasma_history,
+                                   bunch_source_arrays,
+                                   bunch_source_xi_indices,
+                                   bunch_source_metadata):
+        """
+        Runs ONLY ONCE.
+        May call calculate_wakefields multiple times internally.
+        Leaves q_bunch / b_t_bunch / fld_arrays in final consistent state.
+        """
+
+        N_ITER = 2
+        
+        for _ in range(N_ITER):   # placeholder
+
+            # modify self.q_bunch
+            print(self.xi_fld)
+            print(self.dxi)
+            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+    
+    
+            # ---- INSERT beam-loading shaper HERE ----
+            # Example: increase witness charge by 5% between xi=-200um and -100um
+            #self._apply_beamloading_once_on_deposited_qbunch()
+
+            #self._beamload_xi_min = -64e-6
+            #self._beamload_xi_max = -64e-6 + 5 * self.dxi
+            #self._beamload_scale  = 0.3 
+            #self._beamload_smooth = 0
+            #self._apply_beamloading_shaper_on_qbunch(
+            #    xi_min=self._beamload_xi_min,
+            #    xi_max=self._beamload_xi_max,
+            #    scale=self._beamload_scale,
+            #    smooth=self._beamload_smooth,
+            #)
+
+
+
+            self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
+                                                      scale=0.1, smooth=0)
+            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+
+
+            calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+    
+            bunch_source_arrays.append(self.b_t_bunch)
+            bunch_source_xi_indices.append(np.arange(self.n_xi))
+
+            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+            bunch_source_metadata.append(
+                np.array(
+                    [
+                        self.r_fld[0],
+                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                        self.dr,
+                    ]
+                )
+                / s_d
+            )
+
+
+            # Calculate rho only if requested in the diagnostics.
+            calculate_rho = any("rho" in diag for diag in self.field_diags)
+
+
+            self.pp = calculate_wakefields(
+                laser_a2,
+                self.r_max,
+                self.xi_min,
+                self.xi_max,
+                self.n_r,
+                self.n_xi,
+                self.ppc,
+                self.n_p,
+                r_max_plasma=self.r_max_plasma,
+                radial_density=radial_density,
+                p_shape=self.p_shape,
+                max_gamma=self.max_gamma,
+                plasma_pusher=self.plasma_pusher,
+                ion_motion=self.ion_motion,
+                ion_mass=self.ion_mass,
+                free_electrons_per_ion=self.free_electrons_per_ion,
+                fld_arrays=self.fld_arrays,
+                bunch_source_arrays=bunch_source_arrays,
+                bunch_source_xi_indices=bunch_source_xi_indices,
+                bunch_source_metadata=bunch_source_metadata,
+                store_plasma_history=False,
+                calculate_rho=calculate_rho,
+                particle_diags=[],
+            )
+
+
+            E_z = self.fld_arrays[5]
+            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
+            print(E_z_phys[:,0])
+
+
+
+
+
+
+
+            # Add bunch density to total density.
+            if calculate_rho:
+                rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
+                self.rho[2:-2, 2:-2] += rho_bunch
+    
+            # Calculate fields on adaptive grids.
+            if self.use_adaptive_grids:
+                for _, grid in self.bunch_grids.items():
+                    grid.calculate_fields(self.n_p, self.pp)
+
+
+
+
 
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):
         # --- initial-condition-only init ---
-        if not self._did_init_ic:
-            self._init_initial_condition_once(bunches)
-            self._did_init_ic = True
+#        if not self._did_init_ic:
+#            self._init_initial_condition_once(bunches)
+#            self._did_init_ic = True
 
 
         radial_density = self._get_radial_density(self.t * ct.c)
@@ -557,90 +678,109 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 )
 
 
-            # ---- beam-loading only on first solve ----
-            if self._apply_beamloading_this_solve:
-                print(self.xi_fld)
-                print(self.dxi)
-                print([np.max(self.q_bunch),np.min(self.q_bunch)])
-    
-    
-                # ---- INSERT beam-loading shaper HERE ----
-                # Example: increase witness charge by 5% between xi=-200um and -100um
-                self._apply_beamloading_once_on_deposited_qbunch()
-                #self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
-                #                                          scale=1, smooth=0)
-                print([np.max(self.q_bunch),np.min(self.q_bunch)])
+#            # ---- beam-loading only on first solve ----
+#            if self._apply_beamloading_this_solve:
+#                print(self.xi_fld)
+#                print(self.dxi)
+#                print([np.max(self.q_bunch),np.min(self.q_bunch)])
+#    
+#    
+#                # ---- INSERT beam-loading shaper HERE ----
+#                # Example: increase witness charge by 5% between xi=-200um and -100um
+#                self._apply_beamloading_once_on_deposited_qbunch()
+#                #self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
+#                #                                          scale=1, smooth=0)
+#                print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
-            calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-            bunch_source_arrays.append(self.b_t_bunch)
-            bunch_source_xi_indices.append(np.arange(self.n_xi))
-            bunch_source_metadata.append(
-                np.array(
-                    [
-                        self.r_fld[0],
-                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-                        self.dr,
-                    ]
+
+            if not self._initial_condition_done:
+                # ---- INITIAL CONDITION ONLY ----
+                self._beamloading_initial_condition(
+                    laser_a2,
+                    radial_density,
+                    store_plasma_history,
+                    bunch_source_arrays,
+                    bunch_source_xi_indices,
+                    bunch_source_metadata,
                 )
-                / s_d
+
+
+            if self._initial_condition_done:
+                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+                bunch_source_arrays.append(self.b_t_bunch)
+                bunch_source_xi_indices.append(np.arange(self.n_xi))
+                bunch_source_metadata.append(
+                    np.array(
+                        [
+                            self.r_fld[0],
+                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                            self.dr,
+                        ]
+                    )
+                    / s_d
+                )
+
+
+        if self._initial_condition_done:
+
+            # Calculate rho only if requested in the diagnostics.
+            calculate_rho = any("rho" in diag for diag in self.field_diags)
+    
+            # Calculate plasma wakefields
+            self.pp = calculate_wakefields(
+                laser_a2,
+                self.r_max,
+                self.xi_min,
+                self.xi_max,
+                self.n_r,
+                self.n_xi,
+                self.ppc,
+                self.n_p,
+                r_max_plasma=self.r_max_plasma,
+                radial_density=radial_density,
+                p_shape=self.p_shape,
+                max_gamma=self.max_gamma,
+                plasma_pusher=self.plasma_pusher,
+                ion_motion=self.ion_motion,
+                ion_mass=self.ion_mass,
+                free_electrons_per_ion=self.free_electrons_per_ion,
+                fld_arrays=self.fld_arrays,
+                bunch_source_arrays=bunch_source_arrays,
+                bunch_source_xi_indices=bunch_source_xi_indices,
+                bunch_source_metadata=bunch_source_metadata,
+                store_plasma_history=store_plasma_history,
+                calculate_rho=calculate_rho,
+                particle_diags=self.particle_diags,
             )
-
-        # Calculate rho only if requested in the diagnostics.
-        calculate_rho = any("rho" in diag for diag in self.field_diags)
-
-        # Calculate plasma wakefields
-        self.pp = calculate_wakefields(
-            laser_a2,
-            self.r_max,
-            self.xi_min,
-            self.xi_max,
-            self.n_r,
-            self.n_xi,
-            self.ppc,
-            self.n_p,
-            r_max_plasma=self.r_max_plasma,
-            radial_density=radial_density,
-            p_shape=self.p_shape,
-            max_gamma=self.max_gamma,
-            plasma_pusher=self.plasma_pusher,
-            ion_motion=self.ion_motion,
-            ion_mass=self.ion_mass,
-            free_electrons_per_ion=self.free_electrons_per_ion,
-            fld_arrays=self.fld_arrays,
-            bunch_source_arrays=bunch_source_arrays,
-            bunch_source_xi_indices=bunch_source_xi_indices,
-            bunch_source_metadata=bunch_source_metadata,
-            store_plasma_history=store_plasma_history,
-            calculate_rho=calculate_rho,
-            particle_diags=self.particle_diags,
-        )
-
-
-
-        if self._apply_beamloading_this_solve:
-            E_z = self.fld_arrays[5]
-            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
-            print(E_z_phys[:,0])
-
-
-
-
-        # Add bunch density to total density.
-        if calculate_rho:
-            rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
-            self.rho[2:-2, 2:-2] += rho_bunch
-
-        # Calculate fields on adaptive grids.
-        if self.use_adaptive_grids:
-            for _, grid in self.bunch_grids.items():
-                grid.calculate_fields(self.n_p, self.pp)
-
+    
+    
+    
+    #        if self._apply_beamloading_this_solve:
+    #            E_z = self.fld_arrays[5]
+    #            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
+    #            print(E_z_phys[:,0])
+    
+    
+    
+    
+            # Add bunch density to total density.
+            if calculate_rho:
+                rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
+                self.rho[2:-2, 2:-2] += rho_bunch
+    
+            # Calculate fields on adaptive grids.
+            if self.use_adaptive_grids:
+                for _, grid in self.bunch_grids.items():
+                    grid.calculate_fields(self.n_p, self.pp)
+    
+    #        # After first wake solve, disable one-time beam-loading effect
+    #        if self._apply_beamloading_this_solve:
+    #            self._apply_beamloading_this_solve = False
+    
+    
         # After first wake solve, disable one-time beam-loading effect
-        if self._apply_beamloading_this_solve:
-            self._apply_beamloading_this_solve = False
-
-
+        self._initial_condition_done = True
 
 
     def _reset_bunch_arrays(self):
