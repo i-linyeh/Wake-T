@@ -15,6 +15,8 @@ from wake_t.physics_models.laser.laser_pulse import LaserPulse
 from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 
+from wake_t.particles.deposition import inverse_deposit_3d_distribution
+
 
 class Quasistatic2DWakefieldIon(RZWakefield):
     """
@@ -441,7 +443,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             )
 
 
-        N_ITER = 2
+        N_ITER = 1
         
         for _ in range(N_ITER):   # placeholder
 
@@ -546,6 +548,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             if self.use_adaptive_grids:
                 for _, grid in self.bunch_grids.items():
                     grid.calculate_fields(self.n_p, self.pp)
+
+
+
+
+        w_back, _ = inverse_deposit_3d_distribution(
+            z, x, y,
+            z_min, r_min,
+            nz, nr, dz, dr,
+            rho,
+            p_shape="cubic",
+        )
 
 
 
