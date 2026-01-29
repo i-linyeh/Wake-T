@@ -419,21 +419,169 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-    def _beamloading_initial_condition(self,
-                                   laser_a2,
-                                   radial_density,
-                                   store_plasma_history,
-                                   bunch_source_arrays,
-                                   bunch_source_xi_indices,
-                                   bunch_source_metadata,
-                                   bunches: List[ParticleBunch]):
+#    def _beamloading_initial_condition(self,
+#                                   laser_a2,
+#                                   radial_density,
+#                                   store_plasma_history,
+#                                   bunch_source_arrays,
+#                                   bunch_source_xi_indices,
+#                                   bunch_source_metadata,
+#                                   bunches: List[ParticleBunch]):
+#        """
+#        Runs ONLY ONCE.
+#        May call calculate_wakefields multiple times internally.
+#        Leaves q_bunch / b_t_bunch / fld_arrays in final consistent state.
+#        """
+#
+#
+#        if len(bunch_source_arrays) == 0:
+#            bunch_source_arrays.append(self.b_t_bunch)
+#            bunch_source_xi_indices.append(np.arange(self.n_xi))
+#    
+#            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+#            bunch_source_metadata.append(
+#                np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+#            )
+#
+#
+#        N_ITER = 1
+#        
+#        for _ in range(N_ITER):   # placeholder
+#
+#            # modify self.q_bunch
+#            print(self.xi_fld)
+#            print(self.dxi)
+#            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+#    
+#    
+#            # ---- INSERT beam-loading shaper HERE ----
+#            # Example: increase witness charge by 5% between xi=-200um and -100um
+#            #self._apply_beamloading_once_on_deposited_qbunch()
+#
+#            #self._beamload_xi_min = -64e-6
+#            #self._beamload_xi_max = -64e-6 + 5 * self.dxi
+#            #self._beamload_scale  = 0.3 
+#            #self._beamload_smooth = 0
+#            #self._apply_beamloading_shaper_on_qbunch(
+#            #    xi_min=self._beamload_xi_min,
+#            #    xi_max=self._beamload_xi_max,
+#            #    scale=self._beamload_scale,
+#            #    smooth=self._beamload_smooth,
+#            #)
+#
+#
+#
+#            self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
+#                                                      scale=0.1, smooth=0)
+#            print([np.max(self.q_bunch),np.min(self.q_bunch)])
+#
+#
+#            calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+#    
+##            bunch_source_arrays.append(self.b_t_bunch)
+##            bunch_source_xi_indices.append(np.arange(self.n_xi))
+##
+##            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+##            bunch_source_metadata.append(
+##                np.array(
+##                    [
+##                        self.r_fld[0],
+##                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+##                        self.dr,
+##                    ]
+##                )
+##                / s_d
+##            )
+#
+#
+#
+#            # overwrite the existing base-grid slot (index 0)
+#            bunch_source_arrays[0] = self.b_t_bunch
+#
+#
+#            # Calculate rho only if requested in the diagnostics.
+#            calculate_rho = any("rho" in diag for diag in self.field_diags)
+#
+#
+#            self.pp = calculate_wakefields(
+#                laser_a2,
+#                self.r_max,
+#                self.xi_min,
+#                self.xi_max,
+#                self.n_r,
+#                self.n_xi,
+#                self.ppc,
+#                self.n_p,
+#                r_max_plasma=self.r_max_plasma,
+#                radial_density=radial_density,
+#                p_shape=self.p_shape,
+#                max_gamma=self.max_gamma,
+#                plasma_pusher=self.plasma_pusher,
+#                ion_motion=self.ion_motion,
+#                ion_mass=self.ion_mass,
+#                free_electrons_per_ion=self.free_electrons_per_ion,
+#                fld_arrays=self.fld_arrays,
+#                bunch_source_arrays=bunch_source_arrays,
+#                bunch_source_xi_indices=bunch_source_xi_indices,
+#                bunch_source_metadata=bunch_source_metadata,
+#                store_plasma_history=False,
+#                calculate_rho=calculate_rho,
+#                particle_diags=[],
+#            )
+#
+#
+#            E_z = self.fld_arrays[5]
+#            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
+#            print(E_z_phys[:,0])
+#
+#
+#
+#
+#
+#
+#
+#            # Add bunch density to total density.
+#            if calculate_rho:
+#                rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
+#                self.rho[2:-2, 2:-2] += rho_bunch
+#    
+#            # Calculate fields on adaptive grids.
+#            if self.use_adaptive_grids:
+#                for _, grid in self.bunch_grids.items():
+#                    grid.calculate_fields(self.n_p, self.pp)
+#
+#
+#
+#        q_new, _ = inverse_deposit_3d_distribution(
+#            bunches[0].xi, bunches[0].x, bunches[0].y,
+#            self.xi_fld[0], self.r_fld[0],
+#            self.n_xi, self.n_r, self.dxi, self.dr,
+#            self.q_bunch,
+#            p_shape="cubic",
+#        )
+#
+#        bunches[0].w = np.abs(q_new/bunches[0].q_species)
+
+
+
+
+    def _beamloading_initial_condition(
+        self,
+        laser_a2,
+        radial_density,
+        store_plasma_history,
+        bunch_source_arrays,
+        bunch_source_xi_indices,
+        bunch_source_metadata,
+        bunches: List[ParticleBunch],
+    ):
         """
         Runs ONLY ONCE.
-        May call calculate_wakefields multiple times internally.
-        Leaves q_bunch / b_t_bunch / fld_arrays in final consistent state.
+        Shapes q_bunch via 1D q_bunch_line so that bunch-weighted <Ez>(xi)
+        becomes flat at the tail value.
         """
-
-
+    
+        # --- keep your existing bunch_source init ---
         if len(bunch_source_arrays) == 0:
             bunch_source_arrays.append(self.b_t_bunch)
             bunch_source_xi_indices.append(np.arange(self.n_xi))
@@ -442,67 +590,57 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             bunch_source_metadata.append(
                 np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
             )
-
-
-        N_ITER = 1
-        
-        for _ in range(N_ITER):   # placeholder
-
-            # modify self.q_bunch
-            print(self.xi_fld)
-            print(self.dxi)
-            print([np.max(self.q_bunch),np.min(self.q_bunch)])
     
+        # ----------------- helpers (local) -----------------
+        #r_centers = self.r_fld[2:-2]                 # (n_r,)
+        #xi_centers = self.xi_fld[2:-2]               # (n_xi,)
+        r_centers = self.r_fld                 # (n_r,)
+        xi_centers = self.xi_fld               # (n_xi,)
     
-            # ---- INSERT beam-loading shaper HERE ----
-            # Example: increase witness charge by 5% between xi=-200um and -100um
-            #self._apply_beamloading_once_on_deposited_qbunch()
-
-            #self._beamload_xi_min = -64e-6
-            #self._beamload_xi_max = -64e-6 + 5 * self.dxi
-            #self._beamload_scale  = 0.3 
-            #self._beamload_smooth = 0
-            #self._apply_beamloading_shaper_on_qbunch(
-            #    xi_min=self._beamload_xi_min,
-            #    xi_max=self._beamload_xi_max,
-            #    scale=self._beamload_scale,
-            #    smooth=self._beamload_smooth,
-            #)
-
-
-
-            self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
-                                                      scale=0.1, smooth=0)
-            print([np.max(self.q_bunch),np.min(self.q_bunch)])
-
-
+        # 1D line charge (C/m) from deposited q_bunch(ξ,r)
+        # NOTE: q_bunch is charge per (xi,r) cell (C). For line-charge you need sum over r
+        # and divide by dxi (and include 2πr Jacobian if your deposit is "volume-like").
+        # If your deposit already accounts for cylindrical Jacobian, drop (2πr*dr).
+        def q_bunch_line_from_qbunch(qb2d: np.ndarray) -> np.ndarray:
+            qb = qb2d[2:-2, 2:-2]  # (n_xi,n_r)
+            # conservative cylindrical line integration:
+            # g(ξ) ≈ (1/dxi) ∫ 2π r (charge_density_like) dr
+            # Here qb is "cell charge", so include 2πr and dr, then divide by dxi:
+            return (np.sum(qb * (2.0 * np.pi * r_centers[None, :]) , axis=1) * self.dr) / self.dxi
+    
+        # bunch-weighted <Ez>(ξ) using deposited charge magnitude as weights in r
+        def Ez_weighted_from_fields(Ez2d: np.ndarray, qb2d: np.ndarray) -> np.ndarray:
+            Ez = Ez2d[2:-2, 2:-2]          # (n_xi,n_r)
+            qb = qb2d[2:-2, 2:-2]
+            w = np.abs(qb)
+            wsum = np.sum(w, axis=1)
+            out = np.zeros(Ez.shape[0], dtype=float)
+            m = wsum > 0
+            out[m] = np.sum(Ez[m, :] * w[m, :], axis=1) / wsum[m]
+            return out
+    
+        # scale one xi slice k (in interior indexing 0..n_xi-1) to set a new line-charge g_new
+        # keeps transverse shape fixed
+        def set_slice_line_charge(qb2d: np.ndarray, k: int, g_new: float) -> np.ndarray:
+            qb_new = qb2d.copy()
+            g_old_all = q_bunch_line_from_qbunch(qb2d)
+            g_old = g_old_all[k]
+            if g_old == 0.0:
+                return qb_new
+            s = g_new / g_old
+            qb_new[2 + k, 2:-2] *= s
+            return qb_new
+    
+        def solve_with_qbunch(qb2d: np.ndarray):
+            # update q_bunch and b_t_bunch
+            self.q_bunch[:, :] = qb2d
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
     
-#            bunch_source_arrays.append(self.b_t_bunch)
-#            bunch_source_xi_indices.append(np.arange(self.n_xi))
-#
-#            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
-#            bunch_source_metadata.append(
-#                np.array(
-#                    [
-#                        self.r_fld[0],
-#                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-#                        self.dr,
-#                    ]
-#                )
-#                / s_d
-#            )
-
-
-
-            # overwrite the existing base-grid slot (index 0)
+            # overwrite the base-grid slot (index 0) to use the updated b_t_bunch
             bunch_source_arrays[0] = self.b_t_bunch
-
-
-            # Calculate rho only if requested in the diagnostics.
+    
             calculate_rho = any("rho" in diag for diag in self.field_diags)
-
-
+    
             self.pp = calculate_wakefields(
                 laser_a2,
                 self.r_max,
@@ -524,34 +662,95 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 bunch_source_arrays=bunch_source_arrays,
                 bunch_source_xi_indices=bunch_source_xi_indices,
                 bunch_source_metadata=bunch_source_metadata,
-                store_plasma_history=False,
+                store_plasma_history=False,      # IC stage only
                 calculate_rho=calculate_rho,
                 particle_diags=[],
             )
-
-
-            E_z = self.fld_arrays[5]
-            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
-            print(E_z_phys[:,0])
-
-
-
-
-
-
-
-            # Add bunch density to total density.
-            if calculate_rho:
-                rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
-                self.rho[2:-2, 2:-2] += rho_bunch
     
-            # Calculate fields on adaptive grids.
-            if self.use_adaptive_grids:
-                for _, grid in self.bunch_grids.items():
-                    grid.calculate_fields(self.n_p, self.pp)
-
-
-
+            Ez_w = Ez_weighted_from_fields(self.e_z, self.q_bunch)
+            g_line = q_bunch_line_from_qbunch(self.q_bunch)
+            return Ez_w, g_line
+    
+        # ----------------- SALAME-like shaping -----------------
+    
+        # starting point: current deposited qbunch from this timestep
+        qb_current = self.q_bunch.copy()
+    
+        Ez_w0, g_line0 = solve_with_qbunch(qb_current)
+    
+        # define bunch-support indices (where there is charge)
+        support = np.where(np.abs(g_line0) > 0.0)[0]
+        if support.size < 2:
+            # nothing to shape
+            return
+    
+        k_tail = support[-1]
+        Ez_target = Ez_w0[k_tail]   # tail value target (flat)
+    
+        # parameters (keep minimal)
+        max_iter = 200
+        tol = 1e-4
+    
+        # march from tail -> head (skip first support index because we use k-1 control)
+        for k in range(k_tail, support[0], -1):
+            # only shape inside the bunch-support region
+            if np.abs(g_line0[k]) == 0.0:
+                continue
+    
+            # bracket on g_k
+            g_min = 0.0
+            g_max = 5.0 * g_line0[k]   # start near original
+    
+            qb_min = set_slice_line_charge(qb_current, k, g_min)
+            Ez_min, _ = solve_with_qbunch(qb_min)
+    
+            qb_max = set_slice_line_charge(qb_current, k, g_max)
+            Ez_max, _ = solve_with_qbunch(qb_max)
+    
+            # expand g_max until we bracket target at control point k-1
+            # (match magnitude; same logic as your script)
+            while np.abs(Ez_max[k - 1]) > np.abs(Ez_target):
+                g_max *= 5.0
+                qb_max = set_slice_line_charge(qb_current, k, g_max)
+                Ez_max, _ = solve_with_qbunch(qb_max)
+                # safety
+                if g_max == 0.0 or not np.isfinite(g_max):
+                    break
+    
+            # regula-falsi style refinement
+            qb_new = qb_current
+            Ez_new = Ez_min
+            for _ in range(max_iter):
+                den = np.abs(Ez_max[k - 1] - Ez_min[k - 1])
+                if den == 0.0:
+                    break
+    
+                wg = np.abs(Ez_target - Ez_min[k - 1]) / den
+                g_new = wg * g_max + (1.0 - wg) * g_min
+    
+                qb_try = set_slice_line_charge(qb_current, k, g_new)
+                Ez_try, _ = solve_with_qbunch(qb_try)
+    
+                # update bracket
+                if np.abs(Ez_try[k - 1]) > np.abs(Ez_target):
+                    g_min, Ez_min = g_new, Ez_try
+                else:
+                    g_max, Ez_max = g_new, Ez_try
+    
+                rel = np.abs(Ez_try[k - 1] - Ez_target) / (np.abs(Ez_target) + 1e-300)
+                qb_new, Ez_new = qb_try, Ez_try
+                if rel < tol:
+                    break
+    
+            # accept this slice update and move to next slice forward
+            qb_current = qb_new
+    
+        # finalize q_bunch with shaped qb_current
+        self.q_bunch[:, :] = qb_current
+        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+        bunch_source_arrays[0] = self.b_t_bunch
+    
+        # map shaped deposited qbunch -> particle charges, update bunch weights (your existing code)
         q_new, _ = inverse_deposit_3d_distribution(
             bunches[0].xi, bunches[0].x, bunches[0].y,
             self.xi_fld[0], self.r_fld[0],
@@ -559,8 +758,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             self.q_bunch,
             p_shape="cubic",
         )
+        bunches[0].w = np.abs(q_new / bunches[0].q_species)
 
-        bunches[0].w = np.abs(q_new/bunches[0].q_species)
+
+
+
 
 
 
