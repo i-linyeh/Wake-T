@@ -686,14 +686,15 @@ class Quasistatic2DWakefieldIon(RZWakefield):
     
         k_tail = support[-1]
         Ez_target = Ez_w0[k_tail]   # tail value target (flat)
-    
+        print(f"{Ez_target=}") 
         # parameters (keep minimal)
-        max_iter = 200
+        max_iter = 10
         tol = 1e-4
     
         # march from tail -> head (skip first support index because we use k-1 control)
         for k in range(k_tail, support[0], -1):
             # only shape inside the bunch-support region
+            print(k)
             if np.abs(g_line0[k]) == 0.0:
                 continue
     
@@ -727,10 +728,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
     
                 wg = np.abs(Ez_target - Ez_min[k - 1]) / den
                 g_new = wg * g_max + (1.0 - wg) * g_min
-    
+                
+                print(f"{wg=}")
+
                 qb_try = set_slice_line_charge(qb_current, k, g_new)
                 Ez_try, _ = solve_with_qbunch(qb_try)
-    
+                
+                print(f"{Ez_try[k-1]=}")
                 # update bracket
                 if np.abs(Ez_try[k - 1]) > np.abs(Ez_target):
                     g_min, Ez_min = g_new, Ez_try
@@ -739,6 +743,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
     
                 rel = np.abs(Ez_try[k - 1] - Ez_target) / (np.abs(Ez_target) + 1e-300)
                 qb_new, Ez_new = qb_try, Ez_try
+                print(f"{rel=}")
                 if rel < tol:
                     break
     
@@ -749,7 +754,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         self.q_bunch[:, :] = qb_current
         calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
         bunch_source_arrays[0] = self.b_t_bunch
-    
+
+
+
+
+
         # map shaped deposited qbunch -> particle charges, update bunch weights (your existing code)
         q_new, _ = inverse_deposit_3d_distribution(
             bunches[0].xi, bunches[0].x, bunches[0].y,
@@ -803,8 +812,28 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+#        self._reset_bunch_arrays()
+#        for bunch in bunches:
+#            deposit_bunch_charge(
+#                bunch.x,
+#                bunch.y,
+#                bunch.xi,
+#                bunch.q,
+#                self.n_p,
+#                self.n_r,
+#                self.n_xi,
+#                self.r_fld,
+#                self.xi_fld,
+#                self.dr,
+#                self.dxi,
+#                self.p_shape,
+#                self.q_bunch,
+#            )
 
 
+
+        # After first wake solve, disable one-time beam-loading effect
+        #self._initial_condition_done = True
 
 
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):
