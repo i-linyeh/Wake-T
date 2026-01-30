@@ -606,8 +606,12 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # conservative cylindrical line integration:
             # g(ξ) ≈ (1/dxi) ∫ 2π r (charge_density_like) dr
             # Here qb is "cell charge", so include 2πr and dr, then divide by dxi:
-            return (np.sum(qb * (2.0 * np.pi * r_centers[None, :]) , axis=1) * self.dr) / self.dxi
-    
+            #return (np.sum(qb * (2.0 * np.pi * r_centers[None, :]) , axis=1) * self.dr) / self.dxi
+   
+            return np.sum(qb , axis=1) 
+
+
+
         # bunch-weighted <Ez>(ξ) using deposited charge magnitude as weights in r
         def Ez_weighted_from_fields(Ez2d: np.ndarray, qb2d: np.ndarray) -> np.ndarray:
             Ez = Ez2d[2:-2, 2:-2]          # (n_xi,n_r)
@@ -725,11 +729,23 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 den = np.abs(Ez_max[k - 1] - Ez_min[k - 1])
                 if den == 0.0:
                     break
-    
+                
+                print(f"{Ez_max[k-1]=}")
+                print(f"{Ez_min[k-1]=}")
+                
+                if Ez_target<Ez_min[k-1]:
+                    g_new=g_min
+                    qb_try = set_slice_line_charge(qb_current, k, g_new)
+                    Ez_try, _ = solve_with_qbunch(qb_try)
+                    qb_new, Ez_new = qb_try, Ez_try
+                    print(f"{Ez_try[k-1]=}")
+                    print("Need positrons for this slice...")
+                    break
+
                 wg = np.abs(Ez_target - Ez_min[k - 1]) / den
+                print(f"{wg=}")
                 g_new = wg * g_max + (1.0 - wg) * g_min
                 
-                print(f"{wg=}")
 
                 qb_try = set_slice_line_charge(qb_current, k, g_new)
                 Ez_try, _ = solve_with_qbunch(qb_try)
@@ -756,7 +772,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         bunch_source_arrays[0] = self.b_t_bunch
 
 
-
+        # finalize fields for the shaped qb_current
+        Ez_final, g_final = solve_with_qbunch(qb_current)
+        
+        # sanitize chi to avoid NaNs/Infs killing laser envelope
+        chi_int = self.chi[2:-2, 2:-2]
+        if not np.all(np.isfinite(chi_int)):
+            chi_int[~np.isfinite(chi_int)] = 0.0
 
 
         # map shaped deposited qbunch -> particle charges, update bunch weights (your existing code)
