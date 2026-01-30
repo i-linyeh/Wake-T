@@ -16,7 +16,7 @@ from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 
 from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
-
+from wake_t.particles.deposition import deposit_3d_distribution
 
 class Quasistatic2DWakefieldIon(RZWakefield):
     """
@@ -907,6 +907,69 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.p_shape,
                     self.q_bunch,
                 )
+                
+
+                print(bunches[0].w)
+
+
+
+
+
+
+                q_new, _ = inverse_deposit_3d_distribution(
+                    bunches[0].xi, bunches[0].x, bunches[0].y,
+                    self.xi_fld[0], self.r_fld[0],
+                    self.n_xi, self.n_r, self.dxi, self.dr,
+                    self.q_bunch,
+                    p_shape=self.p_shape,
+                    use_ruyten=True,
+                )
+                
+                
+                # 0) Make a grid that counts macroparticles (smoothed)
+                count_grid = np.zeros_like(self.q_bunch)
+                
+                ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
+                
+                # Deposit ones (NO k here; use deposit_3d_distribution directly)
+                deposit_3d_distribution(
+                    bunches[0].xi, bunches[0].x, bunches[0].y,
+                    ones,
+                    self.xi_fld[0],
+                    self.r_fld[0],
+                    self.n_xi,
+                    self.n_r,
+                    self.dxi,
+                    self.dr,
+                    count_grid,
+                    p_shape=self.p_shape,
+                    use_ruyten=True,
+                )
+
+                count_p, _ = inverse_deposit_3d_distribution(
+                    bunches[0].xi, bunches[0].x, bunches[0].y,
+                    self.xi_fld[0], self.r_fld[0],
+                    self.n_xi, self.n_r, self.dxi, self.dr,
+                    count_grid,
+                    p_shape=self.p_shape,
+                    use_ruyten=True,
+                )
+
+
+
+                k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
+                
+                # convert back to charge-like quantity
+                q_est = q_new / k
+
+                eps = 1e-30
+                w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
+
+                print(np.abs(q_est / bunches[0].q_species))
+                print(count_p)
+
+                bunches[0].w =  w_est
+                print(bunches[0].w)
 
 
 #            # ---- beam-loading only on first solve ----
@@ -942,20 +1005,37 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             
 
 
+#            if self._initial_condition_done:
+#                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+#                bunch_source_arrays.append(self.b_t_bunch)
+#                bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                bunch_source_metadata.append(
+#                    np.array(
+#                        [
+#                            self.r_fld[0],
+#                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+#                            self.dr,
+#                        ]
+#                    )
+#                    / s_d
+#                )
+
+
             if self._initial_condition_done:
                 calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-                bunch_source_arrays.append(self.b_t_bunch)
-                bunch_source_xi_indices.append(np.arange(self.n_xi))
-                bunch_source_metadata.append(
-                    np.array(
-                        [
-                            self.r_fld[0],
-                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-                            self.dr,
-                        ]
+                if len(bunch_source_arrays) == 0:
+                    bunch_source_arrays.append(self.b_t_bunch)
+                    bunch_source_xi_indices.append(np.arange(self.n_xi))
+                    bunch_source_metadata.append(
+                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
                     )
-                    / s_d
-                )
+                else:
+                    # overwrite base-grid source (don’t append duplicates)
+                    bunch_source_arrays[0] = self.b_t_bunch
+
+
+
+
 
 
         if self._initial_condition_done:
