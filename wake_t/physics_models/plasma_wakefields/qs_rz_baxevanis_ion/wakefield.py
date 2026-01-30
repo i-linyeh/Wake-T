@@ -756,9 +756,50 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             self.xi_fld[0], self.r_fld[0],
             self.n_xi, self.n_r, self.dxi, self.dr,
             self.q_bunch,
-            p_shape="cubic",
+            p_shape=self.p_shape,
+            use_ruyten=True,
+            )
+
+        #  Make a grid that counts macroparticles (smoothed)
+        count_grid = np.zeros_like(self.q_bunch)
+        
+        ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
+        
+        # Deposit ones (NO k here; use deposit_3d_distribution directly)
+        deposit_3d_distribution(
+            bunches[0].xi, bunches[0].x, bunches[0].y,
+            ones,
+            self.xi_fld[0],
+            self.r_fld[0],
+            self.n_xi,
+            self.n_r,
+            self.dxi,
+            self.dr,
+            count_grid,
+            p_shape=self.p_shape,
+            use_ruyten=True,
         )
-        bunches[0].w = np.abs(q_new / bunches[0].q_species)
+
+        count_p, _ = inverse_deposit_3d_distribution(
+            bunches[0].xi, bunches[0].x, bunches[0].y,
+            self.xi_fld[0], self.r_fld[0],
+            self.n_xi, self.n_r, self.dxi, self.dr,
+            count_grid,
+            p_shape=self.p_shape,
+            use_ruyten=True,
+        )
+
+
+
+        k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
+        
+        # convert back to charge-like quantity
+        q_est = q_new / k
+
+        eps = 1e-30
+        w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
+
+        bunches[0].w = w_est
 
 
 
@@ -909,67 +950,69 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 )
                 
 
-                print(bunches[0].w)
 
-
-
-
-
-
-                q_new, _ = inverse_deposit_3d_distribution(
-                    bunches[0].xi, bunches[0].x, bunches[0].y,
-                    self.xi_fld[0], self.r_fld[0],
-                    self.n_xi, self.n_r, self.dxi, self.dr,
-                    self.q_bunch,
-                    p_shape=self.p_shape,
-                    use_ruyten=True,
-                )
-                
-                
-                # 0) Make a grid that counts macroparticles (smoothed)
-                count_grid = np.zeros_like(self.q_bunch)
-                
-                ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
-                
-                # Deposit ones (NO k here; use deposit_3d_distribution directly)
-                deposit_3d_distribution(
-                    bunches[0].xi, bunches[0].x, bunches[0].y,
-                    ones,
-                    self.xi_fld[0],
-                    self.r_fld[0],
-                    self.n_xi,
-                    self.n_r,
-                    self.dxi,
-                    self.dr,
-                    count_grid,
-                    p_shape=self.p_shape,
-                    use_ruyten=True,
-                )
-
-                count_p, _ = inverse_deposit_3d_distribution(
-                    bunches[0].xi, bunches[0].x, bunches[0].y,
-                    self.xi_fld[0], self.r_fld[0],
-                    self.n_xi, self.n_r, self.dxi, self.dr,
-                    count_grid,
-                    p_shape=self.p_shape,
-                    use_ruyten=True,
-                )
-
-
-
-                k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
-                
-                # convert back to charge-like quantity
-                q_est = q_new / k
-
-                eps = 1e-30
-                w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
-
-                print(np.abs(q_est / bunches[0].q_species))
-                print(count_p)
-
-                bunches[0].w =  w_est
-                print(bunches[0].w)
+#                #This block of code is to test the inverse_deposit_3d distribution function
+#                print(bunches[0].w)
+#
+#
+#
+#
+#
+#
+#                q_new, _ = inverse_deposit_3d_distribution(
+#                    bunches[0].xi, bunches[0].x, bunches[0].y,
+#                    self.xi_fld[0], self.r_fld[0],
+#                    self.n_xi, self.n_r, self.dxi, self.dr,
+#                    self.q_bunch,
+#                    p_shape=self.p_shape,
+#                    use_ruyten=True,
+#                )
+#                
+#                
+#                # 0) Make a grid that counts macroparticles (smoothed)
+#                count_grid = np.zeros_like(self.q_bunch)
+#                
+#                ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
+#                
+#                # Deposit ones (NO k here; use deposit_3d_distribution directly)
+#                deposit_3d_distribution(
+#                    bunches[0].xi, bunches[0].x, bunches[0].y,
+#                    ones,
+#                    self.xi_fld[0],
+#                    self.r_fld[0],
+#                    self.n_xi,
+#                    self.n_r,
+#                    self.dxi,
+#                    self.dr,
+#                    count_grid,
+#                    p_shape=self.p_shape,
+#                    use_ruyten=True,
+#                )
+#
+#                count_p, _ = inverse_deposit_3d_distribution(
+#                    bunches[0].xi, bunches[0].x, bunches[0].y,
+#                    self.xi_fld[0], self.r_fld[0],
+#                    self.n_xi, self.n_r, self.dxi, self.dr,
+#                    count_grid,
+#                    p_shape=self.p_shape,
+#                    use_ruyten=True,
+#                )
+#
+#
+#
+#                k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
+#                
+#                # convert back to charge-like quantity
+#                q_est = q_new / k
+#
+#                eps = 1e-30
+#                w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
+#
+#                print(np.abs(q_est / bunches[0].q_species))
+#                print(count_p)
+#
+#                bunches[0].w =  w_est
+#                print(bunches[0].w)
 
 
 #            # ---- beam-loading only on first solve ----
