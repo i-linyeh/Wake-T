@@ -62,17 +62,33 @@ def inverse_deposit_3d_distribution(
     """
     if p_shape == "linear":
         return inverse_deposit_3d_distribution_linear(
-            z, x, y,
-            z_min, r_min, nz, nr, dz, dr,
+            z,
+            x,
+            y,
+            z_min,
+            r_min,
+            nz,
+            nr,
+            dz,
+            dr,
             deposition_array,
-            use_ruyten, r_min_deposit
+            use_ruyten,
+            r_min_deposit,
         )
     elif p_shape == "cubic":
         return inverse_deposit_3d_distribution_cubic(
-            z, x, y,
-            z_min, r_min, nz, nr, dz, dr,
+            z,
+            x,
+            y,
+            z_min,
+            r_min,
+            nz,
+            nr,
+            dz,
+            dr,
             deposition_array,
-            use_ruyten, r_min_deposit
+            use_ruyten,
+            r_min_deposit,
         )
     else:
         raise ValueError(
@@ -122,7 +138,12 @@ def inverse_deposit_3d_distribution_linear(
         z_i = z[i]
         r_i = math.sqrt(x_i * x_i + y_i * y_i)
 
-        if (z_i >= z_min) and (z_i <= z_max) and (r_i >= r_min_deposit) and (r_i <= r_max):
+        if (
+            (z_i >= z_min)
+            and (z_i <= z_max)
+            and (r_i >= r_min_deposit)
+            and (r_i <= r_max)
+        ):
             r_cell = (r_i - r_min) / dr
             z_cell = (z_i - z_min) / dz
 
@@ -139,7 +160,9 @@ def inverse_deposit_3d_distribution_linear(
             # u_z relative to left neighbor gridpoint in z
             if z_cell < 0.0:
                 u_z = 1.0
-            elif r_cell > nz - 1:  # NOTE: matches your deposit code (even though it looks odd)
+            elif (
+                r_cell > nz - 1
+            ):  # NOTE: matches your deposit code (even though it looks odd)
                 u_z = 0.0
             else:
                 u_z = z_cell - int(math.ceil(z_cell)) + 1.0
@@ -215,7 +238,12 @@ def inverse_deposit_3d_distribution_cubic(
         z_i = z[i]
         r_i = math.sqrt(x_i * x_i + y_i * y_i)
 
-        if (z_i >= z_min) and (z_i <= z_max) and (r_i >= r_min_deposit) and (r_i <= r_max):
+        if (
+            (z_i >= z_min)
+            and (z_i <= z_max)
+            and (r_i >= r_min_deposit)
+            and (r_i <= r_max)
+        ):
             r_cell = (r_i - r_min) / dr
             z_cell = (z_i - z_min) / dz
 
@@ -279,22 +307,30 @@ def inverse_deposit_3d_distribution_cubic(
 
             # Unroll for speed & numba-friendliness
             # iz_cell + {0,1,2,3} and ir_cell + {0,1,2,3}
-            w_i += zsc_0 * (rsc_0 * deposition_array[iz_cell + 0, ir_cell + 0] +
-                            rsc_1 * deposition_array[iz_cell + 0, ir_cell + 1] +
-                            rsc_2 * deposition_array[iz_cell + 0, ir_cell + 2] +
-                            rsc_3 * deposition_array[iz_cell + 0, ir_cell + 3])
-            w_i += zsc_1 * (rsc_0 * deposition_array[iz_cell + 1, ir_cell + 0] +
-                            rsc_1 * deposition_array[iz_cell + 1, ir_cell + 1] +
-                            rsc_2 * deposition_array[iz_cell + 1, ir_cell + 2] +
-                            rsc_3 * deposition_array[iz_cell + 1, ir_cell + 3])
-            w_i += zsc_2 * (rsc_0 * deposition_array[iz_cell + 2, ir_cell + 0] +
-                            rsc_1 * deposition_array[iz_cell + 2, ir_cell + 1] +
-                            rsc_2 * deposition_array[iz_cell + 2, ir_cell + 2] +
-                            rsc_3 * deposition_array[iz_cell + 2, ir_cell + 3])
-            w_i += zsc_3 * (rsc_0 * deposition_array[iz_cell + 3, ir_cell + 0] +
-                            rsc_1 * deposition_array[iz_cell + 3, ir_cell + 1] +
-                            rsc_2 * deposition_array[iz_cell + 3, ir_cell + 2] +
-                            rsc_3 * deposition_array[iz_cell + 3, ir_cell + 3])
+            w_i += zsc_0 * (
+                rsc_0 * deposition_array[iz_cell + 0, ir_cell + 0]
+                + rsc_1 * deposition_array[iz_cell + 0, ir_cell + 1]
+                + rsc_2 * deposition_array[iz_cell + 0, ir_cell + 2]
+                + rsc_3 * deposition_array[iz_cell + 0, ir_cell + 3]
+            )
+            w_i += zsc_1 * (
+                rsc_0 * deposition_array[iz_cell + 1, ir_cell + 0]
+                + rsc_1 * deposition_array[iz_cell + 1, ir_cell + 1]
+                + rsc_2 * deposition_array[iz_cell + 1, ir_cell + 2]
+                + rsc_3 * deposition_array[iz_cell + 1, ir_cell + 3]
+            )
+            w_i += zsc_2 * (
+                rsc_0 * deposition_array[iz_cell + 2, ir_cell + 0]
+                + rsc_1 * deposition_array[iz_cell + 2, ir_cell + 1]
+                + rsc_2 * deposition_array[iz_cell + 2, ir_cell + 2]
+                + rsc_3 * deposition_array[iz_cell + 2, ir_cell + 3]
+            )
+            w_i += zsc_3 * (
+                rsc_0 * deposition_array[iz_cell + 3, ir_cell + 0]
+                + rsc_1 * deposition_array[iz_cell + 3, ir_cell + 1]
+                + rsc_2 * deposition_array[iz_cell + 3, ir_cell + 2]
+                + rsc_3 * deposition_array[iz_cell + 3, ir_cell + 3]
+            )
 
             w_out[i] = w_i
         else:
@@ -302,4 +338,3 @@ def inverse_deposit_3d_distribution_cubic(
             w_out[i] = 0.0
 
     return w_out, all_gathered
-
