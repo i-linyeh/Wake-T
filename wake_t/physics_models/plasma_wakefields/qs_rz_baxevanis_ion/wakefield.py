@@ -6,7 +6,7 @@ from numpy.typing import ArrayLike
 import scipy.constants as ct
 import aptools.plasma_accel.general_equations as ge
 
-from .solver import calculate_wakefields
+from .solver import calculate_wakefields, calculate_wakefields_ez_slice
 from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge
 from .adaptive_grid import AdaptiveGrid
 from .utils import calculate_laser_a2
@@ -674,8 +674,63 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             Ez_w = Ez_weighted_from_fields(self.e_z, self.q_bunch)
             g_line = q_bunch_line_from_qbunch(self.q_bunch)
             return Ez_w, g_line
-    
-        # ----------------- SALAME-like shaping -----------------
+
+
+
+
+        def Ez_weighted_at_slice(Ez_r: np.ndarray, qb2d: np.ndarray, slice_i: int) -> float:
+            qb_slice = qb2d[2 + slice_i, 2:-2]     # (n_r,)
+            w = np.abs(qb_slice)
+            s = w.sum()
+            if s == 0.0:
+                return 0.0
+            return float((Ez_r[2:-2] * w).sum() / s)
+        
+        def solve_Ez_weighted_km1(qb2d: np.ndarray, km1: int) -> float:
+            # update q_bunch and b_t_bunch (beam source)
+            self.q_bunch[:, :] = qb2d
+            calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+            bunch_source_arrays[0] = self.b_t_bunch
+        
+            # compute Ez(r) at slice km1 only
+            Ez_r = calculate_wakefields_ez_slice(
+                laser_a2,
+                self.r_max,
+                self.xi_min,
+                self.xi_max,
+                self.n_r,
+                self.n_xi,
+                self.ppc,
+                self.n_p,
+                eval_slice_i=km1,
+                r_max_plasma=self.r_max_plasma,
+                radial_density=radial_density,
+                p_shape=self.p_shape,
+                max_gamma=self.max_gamma,
+                plasma_pusher=self.plasma_pusher,
+                ion_motion=self.ion_motion,
+                ion_mass=self.ion_mass,
+                free_electrons_per_ion=self.free_electrons_per_ion,
+                bunch_source_arrays=bunch_source_arrays,
+                bunch_source_xi_indices=bunch_source_xi_indices,
+                bunch_source_metadata=bunch_source_metadata,
+                store_plasma_history=False,
+                calculate_rho=False,          # fast path
+                particle_diags=[],
+                fld_arrays=self.fld_arrays,
+            )
+        
+            return Ez_weighted_at_slice(Ez_r, self.q_bunch, km1)
+
+
+
+
+
+
+
+
+
+        # ----------------- SALAME iteration -----------------
     
         # starting point: current deposited qbunch from this timestep
         qb_current = self.q_bunch.copy()
@@ -707,38 +762,46 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             g_max = 5.0 * g_line0[k]   # start near original
     
             qb_min = set_slice_line_charge(qb_current, k, g_min)
-            Ez_min, _ = solve_with_qbunch(qb_min)
-    
+            #Ez_min, _ = solve_with_qbunch(qb_min)
+            Ez_min_km1 = solve_Ez_weighted_km1(qb_min, k-1)
+
+
             qb_max = set_slice_line_charge(qb_current, k, g_max)
-            Ez_max, _ = solve_with_qbunch(qb_max)
-    
+            #Ez_max, _ = solve_with_qbunch(qb_max)
+            Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
+
+
             # expand g_max until we bracket target at control point k-1
             # (match magnitude; same logic as your script)
-            while np.abs(Ez_max[k - 1]) > np.abs(Ez_target):
+            while np.abs(Ez_max_km1) > np.abs(Ez_target):
+                print(f"{g_max=}")
                 g_max *= 5.0
                 qb_max = set_slice_line_charge(qb_current, k, g_max)
-                Ez_max, _ = solve_with_qbunch(qb_max)
+                #Ez_max, _ = solve_with_qbunch(qb_max)
+                Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
+                print(f"{Ez_max_km1=}")
                 # safety
                 if g_max == 0.0 or not np.isfinite(g_max):
                     break
     
             # regula-falsi style refinement
             qb_new = qb_current
-            Ez_new = Ez_min
+            Ez_new_km1 = Ez_min_km1
             for _ in range(max_iter):
-                den = np.abs(Ez_max[k - 1] - Ez_min[k - 1])
+                den = np.abs(Ez_max_km1 - Ez_min_km1)
                 if den == 0.0:
                     break
                 
-                print(f"{Ez_max[k-1]=}")
-                print(f"{Ez_min[k-1]=}")
+                print(f"{Ez_max_km1=}")
+                print(f"{Ez_min_km1=}")
                 
-                if Ez_target<Ez_min[k-1]:
+                if Ez_target<Ez_min_km1:
                     g_new=g_min
                     qb_try = set_slice_line_charge(qb_current, k, g_new)
-                    Ez_try, _ = solve_with_qbunch(qb_try)
-                    qb_new, Ez_new = qb_try, Ez_try
-                    print(f"{Ez_try[k-1]=}")
+                    #Ez_try, _ = solve_with_qbunch(qb_try)
+                    Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k-1)
+                    qb_new, Ez_new_km1 = qb_try, Ez_try_km1
+                    print(f"{Ez_try_km1=}")
                     print("Need positrons for this slice...")
                     break
 
@@ -748,17 +811,19 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 
 
                 qb_try = set_slice_line_charge(qb_current, k, g_new)
-                Ez_try, _ = solve_with_qbunch(qb_try)
-                
-                print(f"{Ez_try[k-1]=}")
+                #Ez_try, _ = solve_with_qbunch(qb_try)
+                Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k-1)
+
+
+                print(f"{Ez_try_km1=}")
                 # update bracket
-                if np.abs(Ez_try[k - 1]) > np.abs(Ez_target):
-                    g_min, Ez_min = g_new, Ez_try
+                if np.abs(Ez_try_km1) > np.abs(Ez_target):
+                    g_min, Ez_try_km1 = g_new, Ez_try_km1
                 else:
-                    g_max, Ez_max = g_new, Ez_try
+                    g_max, Ez_try_km1 = g_new, Ez_try_km1
     
                 rel = np.abs(Ez_try[k - 1] - Ez_target) / (np.abs(Ez_target) + 1e-300)
-                qb_new, Ez_new = qb_try, Ez_try
+                qb_new, Ez_new_km1 = qb_try, Ez_try_km1
                 print(f"{rel=}")
                 if rel < tol:
                     break
