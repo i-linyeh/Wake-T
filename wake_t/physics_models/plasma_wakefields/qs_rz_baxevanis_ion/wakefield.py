@@ -682,10 +682,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             qb_slice = qb2d[2 + slice_i, 2:-2]     # (n_r,)
             w = np.abs(qb_slice)
             s = w.sum()
+            
+
             if s == 0.0:
-                return 0.0
+                w = np.ones(len(w))
+                s = w.sum()
             return float((Ez_r[2:-2] * w).sum() / s)
-        
+       
+
+
+
+
         def solve_Ez_weighted_km1(qb2d: np.ndarray, km1: int) -> float:
             # update q_bunch and b_t_bunch (beam source)
             self.q_bunch[:, :] = qb2d
@@ -758,19 +765,23 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 continue
     
             # bracket on g_k
-            g_min = 0.0
+            g_min = -1e-100
             g_max = 5.0 * g_line0[k]   # start near original
-    
+   
+            print(f"{g_max=}")
+
             qb_min = set_slice_line_charge(qb_current, k, g_min)
             #Ez_min, _ = solve_with_qbunch(qb_min)
-            Ez_min_km1 = solve_Ez_weighted_km1(qb_min, k-1)
+            Ez_min_km1 = solve_Ez_weighted_km1(qb_min, k)
 
 
             qb_max = set_slice_line_charge(qb_current, k, g_max)
             #Ez_max, _ = solve_with_qbunch(qb_max)
-            Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
+            Ez_max_km1 = solve_Ez_weighted_km1(qb_max*5, k)
 
-
+            print("g_old =", q_bunch_line_from_qbunch(qb_current)[k])
+            print("g_min slice =", q_bunch_line_from_qbunch(qb_min)[k])
+            print("g_max slice =", q_bunch_line_from_qbunch(qb_max)[k])
 
             print(f"{Ez_max_km1=}")
             print(f"{Ez_min_km1=}")
@@ -783,7 +794,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 g_max *= 5.0
                 qb_max = set_slice_line_charge(qb_current, k, g_max)
                 #Ez_max, _ = solve_with_qbunch(qb_max)
-                Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
+                Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k)
                 print(f"{Ez_max_km1=}")
                 # safety
                 if g_max == 0.0 or not np.isfinite(g_max):
@@ -799,25 +810,27 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 
                 print(f"{Ez_max_km1=}")
                 print(f"{Ez_min_km1=}")
-                
+                print(f"{Ez_target=}")
+
+
                 if Ez_target<Ez_min_km1:
                     g_new=g_min
                     qb_try = set_slice_line_charge(qb_current, k, g_new)
                     #Ez_try, _ = solve_with_qbunch(qb_try)
-                    Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k-1)
+                    Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k)
                     qb_new, Ez_new_km1 = qb_try, Ez_try_km1
                     print(f"{Ez_try_km1=}")
                     print("Need positrons for this slice...")
                     break
 
-                wg = np.abs(Ez_target - Ez_min[k - 1]) / den
+                wg = np.abs(Ez_target - Ez_min_km1) / den
                 print(f"{wg=}")
                 g_new = wg * g_max + (1.0 - wg) * g_min
                 
 
                 qb_try = set_slice_line_charge(qb_current, k, g_new)
                 #Ez_try, _ = solve_with_qbunch(qb_try)
-                Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k-1)
+                Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k)
 
 
                 print(f"{Ez_try_km1=}")
@@ -827,7 +840,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 else:
                     g_max, Ez_try_km1 = g_new, Ez_try_km1
     
-                rel = np.abs(Ez_try[k - 1] - Ez_target) / (np.abs(Ez_target) + 1e-300)
+                rel = np.abs(Ez_try_km1 - Ez_target) / (np.abs(Ez_target) + 1e-300)
                 qb_new, Ez_new_km1 = qb_try, Ez_try_km1
                 print(f"{rel=}")
                 if rel < tol:

@@ -597,10 +597,19 @@ def calculate_wakefields_ez_slice(
         psi_jp1 = psi[eval_slice_i + 3, :]
         Ez_r = -(psi_jp1 - psi_j) / dxi * E_0
         
-        psi_j_av = np.mean(psi_j)
-        psi_jp1_av = np.mean(psi_jp1)
-        print(f"{psi_j_av=}")
-        print(f"{psi_jp1_av=}")
+        
+        psi_jm1 = psi[eval_slice_i + 1, :]
+        #Ez_r = -(psi_jp1 - psi_jm1) / dxi * E_0
+        
+        #print(f"{psi_jm1[0]=}")
+        #print(f"{psi_j[0]=}")
+        #print(f"{psi_jp1[0]=}")
+
+
+        print("psi(j) axis/mean/min/max:", psi_j[0], psi_j.mean(), psi_j.min(), psi_j.max())
+        print("psi(jp1)   axis/mean/min/max:", psi_jp1[0], psi_jp1.mean(), psi_jp1.min(), psi_jp1.max())
+        print("psi(jm1)   axis/mean/min/max:", psi_jm1[0], psi_jm1.mean(), psi_jm1.min(), psi_jm1.max())
+
 
         #longitudinal_gradient(psi[2:-2, 2:-2], dxi, E_z[2:-2, 2:-2])
         #E_z *= -E_0
