@@ -772,12 +772,12 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
             qb_min = set_slice_line_charge(qb_current, k, g_min)
             #Ez_min, _ = solve_with_qbunch(qb_min)
-            Ez_min_km1 = solve_Ez_weighted_km1(qb_min, k)
+            Ez_min_km1 = solve_Ez_weighted_km1(qb_min, k-1)
 
 
             qb_max = set_slice_line_charge(qb_current, k, g_max)
             #Ez_max, _ = solve_with_qbunch(qb_max)
-            Ez_max_km1 = solve_Ez_weighted_km1(qb_max*5, k)
+            Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
 
             print("g_old =", q_bunch_line_from_qbunch(qb_current)[k])
             print("g_min slice =", q_bunch_line_from_qbunch(qb_min)[k])
@@ -794,7 +794,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 g_max *= 5.0
                 qb_max = set_slice_line_charge(qb_current, k, g_max)
                 #Ez_max, _ = solve_with_qbunch(qb_max)
-                Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k)
+                Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
                 print(f"{Ez_max_km1=}")
                 # safety
                 if g_max == 0.0 or not np.isfinite(g_max):
@@ -817,7 +817,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     g_new=g_min
                     qb_try = set_slice_line_charge(qb_current, k, g_new)
                     #Ez_try, _ = solve_with_qbunch(qb_try)
-                    Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k)
+                    Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k-1)
                     qb_new, Ez_new_km1 = qb_try, Ez_try_km1
                     print(f"{Ez_try_km1=}")
                     print("Need positrons for this slice...")
@@ -830,7 +830,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
                 qb_try = set_slice_line_charge(qb_current, k, g_new)
                 #Ez_try, _ = solve_with_qbunch(qb_try)
-                Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k)
+                Ez_try_km1 = solve_Ez_weighted_km1(qb_try, k-1)
 
 
                 print(f"{Ez_try_km1=}")

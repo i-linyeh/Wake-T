@@ -551,7 +551,7 @@ def calculate_wakefields_ez_slice(
     # Decide stop slice so that psi neighbor exists for Ez difference
     if eval_slice_i < n_xi - 1:
         # need psi at eval and eval+1 -> stop at eval (because eval+1 is computed earlier)
-        stop_slice_i = eval_slice_i
+        stop_slice_i = eval_slice_i-1
         use_forward = True
     else:
         # eval is tail: need psi at eval and eval-1 -> must stop at eval-1
@@ -595,10 +595,11 @@ def calculate_wakefields_ez_slice(
         #Ez_r = -(psi_jp1 - psi_j) / dxi * E_0
         psi_j   = psi[eval_slice_i + 2, :]
         psi_jp1 = psi[eval_slice_i + 3, :]
-        Ez_r = -(psi_jp1 - psi_j) / dxi * E_0
+        #Ez_r = -(psi_jp1 - psi_j) / dxi * E_0
         
         
         psi_jm1 = psi[eval_slice_i + 1, :]
+        psi_jm2 = psi[eval_slice_i + 0, :]
         #Ez_r = -(psi_jp1 - psi_jm1) / dxi * E_0
         
         #print(f"{psi_jm1[0]=}")
@@ -609,11 +610,12 @@ def calculate_wakefields_ez_slice(
         print("psi(j) axis/mean/min/max:", psi_j[0], psi_j.mean(), psi_j.min(), psi_j.max())
         print("psi(jp1)   axis/mean/min/max:", psi_jp1[0], psi_jp1.mean(), psi_jp1.min(), psi_jp1.max())
         print("psi(jm1)   axis/mean/min/max:", psi_jm1[0], psi_jm1.mean(), psi_jm1.min(), psi_jm1.max())
+        print("psi(jm2)   axis/mean/min/max:", psi_jm2[0], psi_jm2.mean(), psi_jm2.min(), psi_jm2.max())
 
 
-        #longitudinal_gradient(psi[2:-2, 2:-2], dxi, E_z[2:-2, 2:-2])
-        #E_z *= -E_0
-        #Ez_r = E_z[eval_slice_i+2,:]
+        longitudinal_gradient(psi[2:-2, 2:-2], dxi, E_z[2:-2, 2:-2])
+        E_z *= -E_0
+        Ez_r = E_z[eval_slice_i+2,:]
     else:
         psi_j   = psi[eval_slice_i + 2, 2:-2]
         psi_jm1 = psi[eval_slice_i + 1, 2:-2]
