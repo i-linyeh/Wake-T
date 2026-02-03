@@ -771,6 +771,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             Ez_max_km1 = solve_Ez_weighted_km1(qb_max, k-1)
 
 
+
+            print(f"{Ez_max_km1=}")
+            print(f"{Ez_min_km1=}")
+
+
             # expand g_max until we bracket target at control point k-1
             # (match magnitude; same logic as your script)
             while np.abs(Ez_max_km1) > np.abs(Ez_target):
