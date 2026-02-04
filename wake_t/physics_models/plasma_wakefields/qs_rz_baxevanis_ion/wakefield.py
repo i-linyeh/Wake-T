@@ -6,7 +6,7 @@ from numpy.typing import ArrayLike
 import scipy.constants as ct
 import aptools.plasma_accel.general_equations as ge
 
-from .solver import calculate_wakefields, calculate_wakefields_ez_slice
+from .solver import calculate_wakefields, calculate_wakefields_ez_slice, evolve_window_inplace, deepcopy_pp_state
 from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge
 from .adaptive_grid import AdaptiveGrid
 from .utils import calculate_laser_a2
@@ -17,6 +17,26 @@ from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 
 from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
 from wake_t.particles.deposition import deposit_3d_distribution
+
+
+from .utils import longitudinal_gradient, radial_gradient
+
+from .plasma_particles import (
+    pp_initialize,
+    pp_sort,
+    pp_gather_laser_sources,
+    pp_gather_bunch_sources,
+    pp_calculate_fields,
+    pp_calculate_psi_at_grid,
+    pp_calculate_b_theta_at_grid,
+    pp_calculate_weights,
+    pp_deposit_rho,
+    pp_deposit_chi,
+    pp_store_current_step,
+    pp_evolve,
+    pp_get_history,
+)
+
 
 class Quasistatic2DWakefieldIon(RZWakefield):
     """
@@ -565,7 +585,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-    def _beamloading_initial_condition(
+    def _beamloading_initial_condition_kmax_to_k_field(
         self,
         laser_a2,
         radial_density,
@@ -731,9 +751,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+        
 
 
 
+        
 
 
 
@@ -753,8 +775,15 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         k_tail = support[-1]
         Ez_target = Ez_w0[k_tail]   # tail value target (flat)
         print(f"{Ez_target=}") 
+        
+
+        
+
+
+
+
         # parameters (keep minimal)
-        max_iter = 100
+        max_iter = 10
         tol = 1e-4
     
         # march from tail -> head (skip first support index because we use k-1 control)
@@ -836,9 +865,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 print(f"{Ez_try_km1=}")
                 # update bracket
                 if np.abs(Ez_try_km1) > np.abs(Ez_target):
-                    g_min, Ez_try_km1 = g_new, Ez_try_km1
+                    g_min, Ez_min_km1 = g_new, Ez_try_km1
                 else:
-                    g_max, Ez_try_km1 = g_new, Ez_try_km1
+                    g_max, Ez_max_km1 = g_new, Ez_try_km1
     
                 rel = np.abs(Ez_try_km1 - Ez_target) / (np.abs(Ez_target) + 1e-300)
                 qb_new, Ez_new_km1 = qb_try, Ez_try_km1
@@ -939,6 +968,403 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         # After first wake solve, disable one-time beam-loading effect
         #self._initial_condition_done = True
+
+
+
+
+    def _beamloading_initial_condition(
+        self,
+        laser_a2,
+        radial_density,
+        store_plasma_history,
+        bunch_source_arrays,
+        bunch_source_xi_indices,
+        bunch_source_metadata,
+        bunches,
+    ):
+        # ------------------------------------------------------------
+        # (0) Ensure bunch_source_arrays is initialized (base-grid only)
+        # ------------------------------------------------------------
+        if len(bunch_source_arrays) == 0:
+            bunch_source_arrays.append(self.b_t_bunch)
+            bunch_source_xi_indices.append(np.arange(self.n_xi))
+            s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+            bunch_source_metadata.append(
+                np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+            )
+    
+        # ------------------------------------------------------------
+        # (1) Build baseline b_t_bunch from current deposited q_bunch
+        #     (Do once; later we update slice-by-slice)
+        # ------------------------------------------------------------
+        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+        bunch_source_arrays[0] = self.b_t_bunch
+    
+        # ------------------------------------------------------------
+        # (2) Helpers: line-charge proxy and Ez-weighted average
+        # ------------------------------------------------------------
+        def q_bunch_line_from_qbunch(qb2d):
+            # (n_xi,) using interior only
+            qb = qb2d[2:-2, 2:-2]
+            return np.sum(qb, axis=1)
+    
+        def Ez_weighted_at_slice(Ez_r, qb2d, slice_i):
+            qb_slice = qb2d[2 + slice_i, 2:-2]
+            w = np.abs(qb_slice)
+            s = w.sum()
+            if s == 0.0:
+                return float(Ez_r[2:-2].mean())
+            return float((Ez_r[2:-2] * w).sum() / s)
+    
+        def set_slice_line_charge_inplace(qb2d, k, g_new):
+            # scales qb2d at slice k to reach new line charge, keeps transverse shape
+            g_old = q_bunch_line_from_qbunch(qb2d)[k]
+            if g_old == 0.0:
+                return
+            s = g_new / g_old
+            qb2d[2 + k, 2:-2] *= s
+    
+        # ------------------------------------------------------------
+        # (3) Define shaping support + tail index
+        # ------------------------------------------------------------
+        g0 = q_bunch_line_from_qbunch(self.q_bunch)
+        support = np.where(np.abs(g0) > 0.0)[0]
+        if support.size < 3:
+            # need at least k, k-1, k-2
+            return
+    
+        k_head = support[0]
+        k_tail = support[-1]
+    
+        # Your target: Ez flat at tail value (baseline Ez at tail)
+        # We evaluate the baseline Ez at tail using your full solver ONCE (or you can approximate).
+        # Here: do a single full solve, then read Ez_weighted at tail.
+        # (You can replace this with something cheaper later.)
+    
+        # --- full solve once to get initial Ez_target ---
+        calculate_rho = False
+        self.pp = calculate_wakefields(
+            laser_a2,
+            self.r_max,
+            self.xi_min,
+            self.xi_max,
+            self.n_r,
+            self.n_xi,
+            self.ppc,
+            self.n_p,
+            r_max_plasma=self.r_max_plasma,
+            radial_density=radial_density,
+            p_shape=self.p_shape,
+            max_gamma=self.max_gamma,
+            plasma_pusher=self.plasma_pusher,
+            ion_motion=self.ion_motion,
+            ion_mass=self.ion_mass,
+            free_electrons_per_ion=self.free_electrons_per_ion,
+            fld_arrays=self.fld_arrays,
+            bunch_source_arrays=bunch_source_arrays,
+            bunch_source_xi_indices=bunch_source_xi_indices,
+            bunch_source_metadata=bunch_source_metadata,
+            store_plasma_history=False,
+            calculate_rho=calculate_rho,
+            particle_diags=[],
+        )
+        # Tail Ez target (weighted)
+        Ez_target = Ez_weighted_at_slice(self.e_z[2 + k_tail, :], self.q_bunch, k_tail)
+        # (Above uses Ez already computed in self.e_z. Or read self.e_z[:, :] after solve.)
+        # If you want strictly consistent with your definition using Ez(r) returned from cache,
+        # you'll compute it similarly below; this is just to set target.
+    
+        # ------------------------------------------------------------
+        # (4) Build cache: plasma state after processing slice k_tail+1
+        #     => ready to process slice k_tail
+        # ------------------------------------------------------------
+        # Normalization values identical to solver
+        s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+        r_max_n = self.r_max / s_d
+        xi_min_n = self.xi_min / s_d
+        xi_max_n = self.xi_max / s_d
+        dr_n = r_max_n / self.n_r
+        dxi_n = (xi_max_n - xi_min_n) / (self.n_xi - 1)
+        r_fld_n = (self.r_fld / s_d).copy()
+    
+        # laser gradient in normalized coordinates
+        nabla_a2 = np.zeros((self.n_xi + 4, self.n_r + 4))
+        has_laser_source = laser_a2 is not None
+        if has_laser_source:
+            radial_gradient(laser_a2[2:-2, 2:-2], dr_n, nabla_a2[2:-2, 2:-2])
+        else:
+            laser_a2 = np.zeros((0, 0))
+            nabla_a2 = np.zeros((0, 0))
+    
+        # normalized ppc + normalized radial density
+        ppc_n = self.ppc.copy()
+        ppc_n[:, 0] /= s_d
+    
+        def radial_density_normalized(r):
+            return radial_density(r * s_d) / self.n_p
+    
+        # init plasma species once (store_history OFF)
+        init_list = [
+            {"charge": self.free_electrons_per_ion,  "mass": self.free_electrons_per_ion, "is_ion": False},
+            {"charge": -self.free_electrons_per_ion, "mass": self.ion_mass / ct.m_e,       "is_ion": True},
+        ]
+        species_list = pp_initialize(
+            init_list,
+            self.n_xi,
+            ppc_n,
+            dr_n,
+            radial_density_normalized,
+            self.ion_motion,
+            False,
+            self.plasma_pusher,
+        )
+        pp_cache = tuple(s.serialize() for s in species_list)
+    
+        # work arrays for cache evolution
+        psi = np.zeros((self.n_xi + 4, self.n_r + 4))
+        self.b_t[:] = 0.0
+        self.chi[:] = 0.0
+    
+        evolve_window_inplace(
+            pp_cache,
+            self.n_xi, self.n_r, dxi_n, dr_n, r_fld_n,
+            has_laser_source, laser_a2, nabla_a2,
+            True,
+            tuple(bunch_source_arrays), tuple(bunch_source_xi_indices), tuple(bunch_source_metadata),
+            self.max_gamma,
+            psi, self.b_t,   # B_t array from fld_arrays is self.b_t
+            self.p_shape,
+            False, self.rho, self.rho_e, self.rho_i,
+            self.chi,
+            False, ("none",),
+            self.n_xi - 1,
+            k_tail + 1,
+        )
+    
+        # ------------------------------------------------------------
+        # (5) Trial evaluator: from pp_cache at k+1, evolve only k..k-2 on scratch
+        # ------------------------------------------------------------
+        def eval_Ez_weighted_km1_from_cache(k):
+            # update only slice-k beam source (since only q_bunch[k] changes during trial)
+            calculate_bunch_source_slice(self.q_bunch, self.n_r, k, self.b_t_bunch)
+            bunch_source_arrays[0] = self.b_t_bunch
+    
+            pp_trial = deepcopy_pp_state(pp_cache)
+    
+            # clear work arrays
+            psi[:, :] = 0.0
+            self.b_t[:] = 0.0
+            self.chi[:] = 0.0
+    
+            evolve_window_inplace(
+                pp_trial,
+                self.n_xi, self.n_r, dxi_n, dr_n, r_fld_n,
+                has_laser_source, laser_a2, nabla_a2,
+                True,
+                tuple(bunch_source_arrays), tuple(bunch_source_xi_indices), tuple(bunch_source_metadata),
+                self.max_gamma,
+                psi, self.b_t,
+                self.p_shape,
+                False, self.rho, self.rho_e, self.rho_i,
+                self.chi,
+                False, ("none",),
+                k, k - 2,
+            )
+    
+            # Ez(k-1,r) via centered stencil on psi:
+            # Ez(k-1) ≈ -(psi(k)-psi(k-2)) / (2*dxi) * E0
+            E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(self.n_p * 1e-6)
+            psi_k   = psi[2 + k,   :]    # includes guard r
+            psi_km2 = psi[2 + k-2, :]
+            Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi_n) * E_0
+    
+            return Ez_weighted_at_slice(Ez_r_km1, self.q_bunch, k - 1)
+    
+        # ------------------------------------------------------------
+        # (6) Commit step: after accepting slice k, advance pp_cache by 1 slice (k only)
+        # ------------------------------------------------------------
+        def commit_cache_one_slice(k):
+            # ensure slice-k source is updated with accepted q_bunch[k]
+            calculate_bunch_source_slice(self.q_bunch, self.n_r, k, self.b_t_bunch)
+            bunch_source_arrays[0] = self.b_t_bunch
+    
+            psi[:, :] = 0.0
+            self.b_t[:] = 0.0
+            self.chi[:] = 0.0
+    
+            evolve_window_inplace(
+                pp_cache,  # mutate in-place
+                self.n_xi, self.n_r, dxi_n, dr_n, r_fld_n,
+                has_laser_source, laser_a2, nabla_a2,
+                True,
+                tuple(bunch_source_arrays), tuple(bunch_source_xi_indices), tuple(bunch_source_metadata),
+                self.max_gamma,
+                psi, self.b_t,
+                self.p_shape,
+                False, self.rho, self.rho_e, self.rho_i,
+                self.chi,
+                False, ("none",),
+                k, k,
+            )
+    
+        # ------------------------------------------------------------
+        # (7) SALAME march: tail -> head, adjusting q_bunch slice-by-slice
+        # ------------------------------------------------------------
+        tol = 1e-4
+        max_iter = 60
+    
+        # Note: we need k>=2 for the centered stencil; also need k-1 in support.
+        for k in range(k_tail, k_head, -1):
+            if k < 2:
+                break
+            if np.abs(g0[k]) == 0.0:
+                # no charge here in baseline, skip
+                commit_cache_one_slice(k)  # optional: if you still want state advance; usually skip entirely
+                continue
+    
+            # --- bracket on g_k ---
+            g_old = q_bunch_line_from_qbunch(self.q_bunch)[k]
+            g_min = 0.0
+            g_max = 5.0 * g_old
+    
+            # Try endpoints
+            qb_backup = self.q_bunch.copy()  # keep original for restoring between trials
+    
+            # g_min
+            self.q_bunch[:, :] = qb_backup
+            set_slice_line_charge_inplace(self.q_bunch, k, g_min)
+            Ez_min = eval_Ez_weighted_km1_from_cache(k)
+    
+            # g_max
+            self.q_bunch[:, :] = qb_backup
+            set_slice_line_charge_inplace(self.q_bunch, k, g_max)
+            Ez_max = eval_Ez_weighted_km1_from_cache(k)
+    
+            # Expand g_max until we bracket target in |Ez|
+            # (use your own monotonic assumption; adjust if sign issues)
+            it_expand = 0
+            while np.abs(Ez_max) > np.abs(Ez_target) and it_expand < 20:
+                g_max *= 5.0
+                self.q_bunch[:, :] = qb_backup
+                set_slice_line_charge_inplace(self.q_bunch, k, g_max)
+                Ez_max = eval_Ez_weighted_km1_from_cache(k)
+                it_expand += 1
+    
+            # --- regula-falsi / linear interpolation on |Ez| ---
+            best_q = qb_backup.copy()
+            best_rel = 1e99
+    
+            for _ in range(max_iter):
+                den = np.abs(Ez_max - Ez_min)
+                if den == 0.0:
+                    break
+    
+                # weight to hit Ez_target in magnitude
+                wg = np.abs(Ez_target - Ez_min) / den
+                g_new = wg * g_max + (1.0 - wg) * g_min
+    
+                self.q_bunch[:, :] = qb_backup
+                set_slice_line_charge_inplace(self.q_bunch, k, g_new)
+                Ez_try = eval_Ez_weighted_km1_from_cache(k)
+    
+                rel = np.abs(Ez_try - Ez_target) / (np.abs(Ez_target) + 1e-300)
+                if rel < best_rel:
+                    best_rel = rel
+                    best_q[:, :] = self.q_bunch
+    
+                if rel < tol:
+                    break
+    
+                # update bracket (IMPORTANT: update the right variables!)
+                if np.abs(Ez_try) > np.abs(Ez_target):
+                    g_min, Ez_min = g_new, Ez_try
+                else:
+                    g_max, Ez_max = g_new, Ez_try
+    
+            # accept best found q_bunch (at slice k) and commit cache by one slice
+            self.q_bunch[:, :] = best_q
+            commit_cache_one_slice(k)
+    
+        # At end: rebuild full b_t_bunch from final q_bunch once (optional sanity)
+        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+        bunch_source_arrays[0] = self.b_t_bunch
+    
+        # Now your existing mapping q_bunch -> particle weights can stay as-is
+        # (inverse_deposit_3d_distribution + count_grid)
+        # ...
+    
+    
+
+
+        # finalize fields for the shaped qb_current
+        #Ez_final, g_final = solve_with_qbunch(qb_current)
+        
+        # sanitize chi to avoid NaNs/Infs killing laser envelope
+        chi_int = self.chi[2:-2, 2:-2]
+        if not np.all(np.isfinite(chi_int)):
+            chi_int[~np.isfinite(chi_int)] = 0.0
+
+
+        # map shaped deposited qbunch -> particle charges, update bunch weights (your existing code)
+        q_new, _ = inverse_deposit_3d_distribution(
+            bunches[0].xi, bunches[0].x, bunches[0].y,
+            self.xi_fld[0], self.r_fld[0],
+            self.n_xi, self.n_r, self.dxi, self.dr,
+            self.q_bunch,
+            p_shape=self.p_shape,
+            use_ruyten=True,
+            )
+
+        #  Make a grid that counts macroparticles (smoothed)
+        count_grid = np.zeros_like(self.q_bunch)
+        
+        ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
+        
+        # Deposit ones (NO k here; use deposit_3d_distribution directly)
+        deposit_3d_distribution(
+            bunches[0].xi, bunches[0].x, bunches[0].y,
+            ones,
+            self.xi_fld[0],
+            self.r_fld[0],
+            self.n_xi,
+            self.n_r,
+            self.dxi,
+            self.dr,
+            count_grid,
+            p_shape=self.p_shape,
+            use_ruyten=True,
+        )
+
+        count_p, _ = inverse_deposit_3d_distribution(
+            bunches[0].xi, bunches[0].x, bunches[0].y,
+            self.xi_fld[0], self.r_fld[0],
+            self.n_xi, self.n_r, self.dxi, self.dr,
+            count_grid,
+            p_shape=self.p_shape,
+            use_ruyten=True,
+        )
+
+
+
+        k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
+        
+        # convert back to charge-like quantity
+        q_est = q_new / k
+
+        eps = 1e-30
+        w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
+
+        bunches[0].w = w_est
+
+
+
+
+
+
+
+
+
+
 
 
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):

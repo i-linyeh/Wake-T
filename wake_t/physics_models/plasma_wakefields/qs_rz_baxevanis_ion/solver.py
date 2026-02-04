@@ -33,6 +33,119 @@ from .plasma_particle_container import PlasmaParticleContainer
 
 
 
+def deepcopy_pp_state(pp_state):
+    """
+    Deep-copy serialized plasma state: tuple(species0_tuple, species1_tuple,...)
+    Arrays are copied; scalars/bools are kept.
+    """
+    out = []
+    for sp in pp_state:
+        sp2 = []
+        for item in sp:
+            if hasattr(item, "copy"):
+                sp2.append(item.copy())
+            else:
+                sp2.append(item)
+        out.append(tuple(sp2))
+    return tuple(out)
+
+
+
+
+
+
+@njit_serial
+def evolve_window_inplace(
+    pp_serialized_list,
+    n_xi,
+    n_r,
+    dxi,
+    dr,
+    r_fld,
+    has_laser_source,
+    laser_a2,
+    nabla_a2,
+    has_beam_source,
+    bunch_source_arrays,
+    bunch_source_xi_indices,
+    bunch_source_metadata,
+    max_gamma,
+    psi,
+    B_t,
+    shape,
+    calculate_rho,
+    rho,
+    rho_e,
+    rho_i,
+    chi,
+    store_plasma_history,
+    particle_diags,
+    start_slice_i,   # inclusive
+    stop_slice_i,    # inclusive (<= start_slice_i)
+):
+    """
+    Resume from an existing pp_serialized_list and evolve only a small window.
+    Mutates pp_serialized_list arrays in-place.
+    """
+    ions_computed = False
+    pp_species_list = [PlasmaParticleContainer(species) for species in pp_serialized_list]
+
+    for slice_i in range(start_slice_i, stop_slice_i - 1, -1):
+        pp_sort(pp_species_list)
+
+        if has_laser_source:
+            pp_gather_laser_sources(
+                pp_species_list,
+                laser_a2[slice_i + 2],
+                nabla_a2[slice_i + 2],
+                r_fld[0],
+                r_fld[-1],
+                dr,
+            )
+
+        if has_beam_source:
+            pp_gather_bunch_sources(
+                pp_species_list,
+                bunch_source_arrays,
+                bunch_source_xi_indices,
+                bunch_source_metadata,
+                slice_i,
+            )
+
+        pp_calculate_fields(pp_species_list, ions_computed, max_gamma)
+
+        pp_calculate_psi_at_grid(pp_species_list, r_fld, psi[slice_i + 2, 2:-2])
+        pp_calculate_b_theta_at_grid(pp_species_list, r_fld, B_t[slice_i + 2, 2:-2])
+
+        if calculate_rho:
+            pp_deposit_rho(
+                pp_species_list,
+                ions_computed,
+                shape,
+                rho[slice_i + 2],
+                rho_e[slice_i + 2],
+                rho_i[slice_i + 2],
+                r_fld,
+                n_r,
+                dr,
+            )
+        elif "w" in particle_diags:
+            pp_calculate_weights(pp_species_list, ions_computed)
+
+        if has_laser_source:
+            pp_deposit_chi(pp_species_list, shape, chi[slice_i + 2], r_fld, n_r, dr)
+
+        ions_computed = True
+
+        if store_plasma_history:
+            pp_store_current_step(pp_species_list, particle_diags)
+
+        if slice_i > 0:
+            pp_evolve(pp_species_list, dxi)
+
+
+
+
 
 
 
@@ -622,4 +735,101 @@ def calculate_wakefields_ez_slice(
         Ez_r = -(psi_j - psi_jm1) / dxi * E_0
 
     return Ez_r  # shape (n_r,)
+
+
+
+
+
+
+
+def calculate_wakefields_ez_km1_from_cache(
+    pp_state_kp1,            # cached plasma state "after slice k+1" (ready for k)
+    k,                       # we are varying q_bunch at slice k, want Ez at k-1
+    laser_a2,
+    r_max,
+    xi_min,
+    xi_max,
+    n_r,
+    n_xi,
+    n_p,
+    radial_density,
+    r_max_plasma,
+    p_shape,
+    max_gamma,
+    bunch_source_arrays,
+    bunch_source_xi_indices,
+    bunch_source_metadata,
+    fld_arrays,
+):
+    """
+    Starting from cached plasma state at k+1, evolve only slices k..k-2
+    and return Ez(k-1, r) (including guard r cells, consistent with your arrays).
+    """
+    rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
+
+    # normalize
+    s_d = ge.plasma_skin_depth(n_p * 1e-6)
+    r_max_n = r_max / s_d
+    xi_min_n = xi_min / s_d
+    xi_max_n = xi_max / s_d
+    dr = r_max_n / n_r
+    dxi = (xi_max_n - xi_min_n) / (n_xi - 1)
+    r_fld_n = r_fld / s_d
+
+    # minimal arrays
+    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
+    psi = np.zeros((n_xi + 4, n_r + 4))
+    B_t[:] = 0.0
+    chi[:] = 0.0
+
+    has_laser_source = laser_a2 is not None
+    if has_laser_source:
+        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+    else:
+        laser_a2 = np.zeros((0, 0))
+        nabla_a2 = np.zeros((0, 0))
+
+    # scratch state (don’t mutate cache)
+    pp_trial = deepcopy_pp_state(pp_state_kp1)
+
+    # evolve k, k-1, k-2 (need k>=2)
+    evolve_window_inplace(
+        pp_trial,
+        n_xi,
+        n_r,
+        dxi,
+        dr,
+        r_fld_n,
+        has_laser_source,
+        laser_a2,
+        nabla_a2,
+        True,
+        tuple(bunch_source_arrays),
+        tuple(bunch_source_xi_indices),
+        tuple(bunch_source_metadata),
+        max_gamma,
+        psi,
+        B_t,
+        p_shape,
+        False,           # calculate_rho off
+        rho,
+        rho_e,
+        rho_i,
+        chi,
+        False,           # no history
+        ("none",),
+        k,
+        k - 2,
+    )
+
+    # compute Ez(k-1,r) using centered stencil in psi
+    E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
+    psi_k   = psi[2 + k,   :]      # includes guard r
+    psi_km2 = psi[2 + k-2, :]      # includes guard r
+    Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
+
+    return Ez_r_km1
+
+
+
 
