@@ -754,7 +754,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         Ez_target = Ez_w0[k_tail]   # tail value target (flat)
         print(f"{Ez_target=}") 
         # parameters (keep minimal)
-        max_iter = 10
+        max_iter = 100
         tol = 1e-4
     
         # march from tail -> head (skip first support index because we use k-1 control)
