@@ -754,7 +754,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         Ez_target = Ez_w0[k_tail]   # tail value target (flat)
         print(f"{Ez_target=}") 
         # parameters (keep minimal)
-        max_iter = 100
+        max_iter = 10
         tol = 1e-4
     
         # march from tail -> head (skip first support index because we use k-1 control)
@@ -836,9 +836,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 print(f"{Ez_try_km1=}")
                 # update bracket
                 if np.abs(Ez_try_km1) > np.abs(Ez_target):
-                    g_min, Ez_try_km1 = g_new, Ez_try_km1
+                    g_min, Ez_min_km1 = g_new, Ez_try_km1
                 else:
-                    g_max, Ez_try_km1 = g_new, Ez_try_km1
+                    g_max, Ez_max_km1 = g_new, Ez_try_km1
     
                 rel = np.abs(Ez_try_km1 - Ez_target) / (np.abs(Ez_target) + 1e-300)
                 qb_new, Ez_new_km1 = qb_try, Ez_try_km1
@@ -939,6 +939,20 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         # After first wake solve, disable one-time beam-loading effect
         #self._initial_condition_done = True
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):

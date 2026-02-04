@@ -35,6 +35,121 @@ from .plasma_particle_container import PlasmaParticleContainer
 
 
 
+def get_plasma_state(species_list):
+    """Deep copy the current physical state of all plasma species."""
+    state = []
+    for s in species_list:
+        state.append({
+            'r': np.copy(s.r),
+            'pr': np.copy(s.pr),
+            'pz': np.copy(s.pz),
+            'gamma': np.copy(s.gamma),
+            'dr': np.copy(s.dr),   # AB2 history (2, n_part)
+            'dpr': np.copy(s.dpr)  # AB2 history (2, n_part)
+        })
+    return state
+
+def set_plasma_state(species_list, state):
+    """Restore the physical state of all plasma species from a snapshot."""
+    for s, st in zip(species_list, state):
+        s.r[:] = st['r']
+        s.pr[:] = st['pr']
+        s.pz[:] = st['pz']
+        s.gamma[:] = st['gamma']
+        s.dr[:] = st['dr']
+        s.dpr[:] = st['dpr']
+
+
+
+
+
+
+@njit_serial
+def evolve_window_n_steps(
+    pp_species_list,
+    start_slice_i,
+    num_steps,
+    dxi,
+    dr,
+    r_fld,
+    has_laser_source,
+    laser_a2,
+    nabla_a2,
+    has_beam_source,
+    bunch_source_arrays,
+    bunch_source_xi_indices,
+    bunch_source_metadata,
+    max_gamma,
+    psi,
+    B_t,
+    shape,
+    calculate_rho,
+    rho,
+    rho_e,
+    rho_i,
+    chi,
+    store_plasma_history,
+    particle_diags,
+    ):
+    """Evolve exactly `num_steps` starting from `start_slice_i`."""
+    ions_computed = False
+    
+    for step in range(num_steps):
+        # Current slice index
+        slice_i = start_slice_i - step
+        if slice_i < 0: break
+            
+        pp_sort(pp_species_list)
+
+        if has_laser_source:
+            pp_gather_laser_sources(pp_species_list, laser_a2[slice_i + 2], 
+                                     nabla_a2[slice_i + 2], r_fld[0], r_fld[-1], dr)
+
+        if has_beam_source:
+            pp_gather_bunch_sources(pp_species_list, bunch_source_arrays, 
+                                     bunch_source_xi_indices, bunch_source_metadata, slice_i)
+
+        pp_calculate_fields(pp_species_list, ions_computed, max_gamma)
+        pp_calculate_psi_at_grid(pp_species_list, r_fld, psi[slice_i + 2, 2:-2])
+        pp_calculate_b_theta_at_grid(pp_species_list, r_fld, B_t[slice_i + 2, 2:-2])
+
+
+
+
+
+        if calculate_rho:
+            pp_deposit_rho(
+                pp_species_list,
+                ions_computed,
+                shape,
+                rho[slice_i + 2],
+                rho_e[slice_i + 2],
+                rho_i[slice_i + 2],
+                r_fld,
+                n_r,
+                dr,
+            )
+        elif "w" in particle_diags:
+            pp_calculate_weights(pp_species_list, ions_computed)
+
+        if has_laser_source:
+            pp_deposit_chi(pp_species_list, shape, chi[slice_i + 2], r_fld, n_r, dr)
+
+        if store_plasma_history:
+            pp_store_current_step(pp_species_list, particle_diags)
+
+
+
+        ions_computed = True
+        
+        # Always evolve to prepare for the next slice (unless it's the absolute last point)
+        if slice_i > 0:
+            pp_evolve(pp_species_list, dxi)
+
+
+
+
+
 
 
 
