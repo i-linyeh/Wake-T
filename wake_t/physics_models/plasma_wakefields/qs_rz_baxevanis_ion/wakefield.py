@@ -995,6 +995,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # conservative cylindrical line integration:
             # g(ξ) ≈ (1/dxi) ∫ 2π r (charge_density_like) dr
             # Here qb is "cell charge", so include 2πr and dr, then divide by dxi:
+    
             #return (np.sum(qb * (2.0 * np.pi * r_centers[None, :]) , axis=1) * self.dr) / self.dxi
    
             return np.sum(qb , axis=1) 
