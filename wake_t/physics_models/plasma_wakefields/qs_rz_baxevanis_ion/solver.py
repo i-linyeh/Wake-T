@@ -822,14 +822,175 @@ def calculate_wakefields_ez_km1_from_cache(
         k - 2,
     )
 
+
+
+
+
     # compute Ez(k-1,r) using centered stencil in psi
     E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
     psi_k   = psi[2 + k,   :]      # includes guard r
     psi_km2 = psi[2 + k-2, :]      # includes guard r
     Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
 
+    psi_km1 = psi[2 + k-1, :]      # includes guard r
+
+    print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
+    print("psi(km1)   axis/mean/min/max:", psi_km1[0], psi_km1.mean(), psi_km1.min(), psi_km1.max())
+    print("psi(km2)   axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
+
     return Ez_r_km1
 
 
 
+
+
+
+def build_pp_cache_at_kp1(
+    k_tail,
+    laser_a2,
+    r_max,
+    xi_min,
+    xi_max,
+    n_r,
+    n_xi,
+    ppc,
+    n_p,
+    r_max_plasma,
+    radial_density,
+    p_shape,
+    max_gamma,
+    plasma_pusher,
+    ion_motion,
+    ion_mass,
+    free_electrons_per_ion,
+    bunch_source_arrays,
+    bunch_source_xi_indices,
+    bunch_source_metadata,
+    fld_arrays,
+):
+    rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
+
+    s_d = ge.plasma_skin_depth(n_p * 1e-6)
+    r_max_n = r_max / s_d
+    xi_min_n = xi_min / s_d
+    xi_max_n = xi_max / s_d
+    dr = r_max_n / n_r
+    dxi = (xi_max_n - xi_min_n) / (n_xi - 1)
+
+    ppc_n = ppc.copy()
+    ppc_n[:, 0] /= s_d
+
+    def radial_density_normalized(r):
+        return radial_density(r * s_d) / n_p
+
+    r_fld_n = r_fld / s_d
+
+    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
+    psi = np.zeros((n_xi + 4, n_r + 4))
+    B_t[:] = 0.0
+    chi[:] = 0.0
+
+    has_laser_source = laser_a2 is not None
+    if has_laser_source:
+        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+    else:
+        laser_a2 = np.zeros((0, 0))
+        nabla_a2 = np.zeros((0, 0))
+
+    init_list = [
+        {"charge": free_electrons_per_ion,  "mass": free_electrons_per_ion, "is_ion": False},
+        {"charge": -free_electrons_per_ion, "mass": ion_mass / ct.m_e,       "is_ion": True},
+    ]
+    species_list = pp_initialize(
+        init_list,
+        n_xi,
+        ppc_n,
+        dr,
+        radial_density_normalized,
+        ion_motion,
+        False,               # store_history OFF (critical for cheap copies)
+        plasma_pusher,
+    )
+    pp_cache = tuple(s.serialize() for s in species_list)
+
+    # evolve tail -> k_tail+1 to make cache "ready for k_tail"
+    evolve_window_inplace(
+        pp_cache,
+        n_xi, n_r, dxi, dr, r_fld_n,
+        has_laser_source, laser_a2, nabla_a2,
+        True,
+        tuple(bunch_source_arrays),
+        tuple(bunch_source_xi_indices),
+        tuple(bunch_source_metadata),
+        max_gamma,
+        psi, B_t,
+        p_shape,
+        False, rho, rho_e, rho_i,
+        chi,
+        False, ("none",),
+        n_xi - 1,
+        k_tail + 1,
+    )
+    return pp_cache
+
+
+
+
+
+def commit_cache_one_slice(
+    pp_cache,
+    k,
+    laser_a2,
+    r_max,
+    xi_min,
+    xi_max,
+    n_r,
+    n_xi,
+    n_p,
+    p_shape,
+    max_gamma,
+    bunch_source_arrays,
+    bunch_source_xi_indices,
+    bunch_source_metadata,
+    fld_arrays,
+):
+    rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
+
+    s_d = ge.plasma_skin_depth(n_p * 1e-6)
+    r_max_n = r_max / s_d
+    xi_min_n = xi_min / s_d
+    xi_max_n = xi_max / s_d
+    dr = r_max_n / n_r
+    dxi = (xi_max_n - xi_min_n) / (n_xi - 1)
+    r_fld_n = r_fld / s_d
+
+    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
+    psi = np.zeros((n_xi + 4, n_r + 4))
+    B_t[:] = 0.0
+    chi[:] = 0.0
+
+    has_laser_source = laser_a2 is not None
+    if has_laser_source:
+        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+    else:
+        laser_a2 = np.zeros((0, 0))
+        nabla_a2 = np.zeros((0, 0))
+
+    # evolve exactly slice k
+    evolve_window_inplace(
+        pp_cache,
+        n_xi, n_r, dxi, dr, r_fld_n,
+        has_laser_source, laser_a2, nabla_a2,
+        True,
+        tuple(bunch_source_arrays),
+        tuple(bunch_source_xi_indices),
+        tuple(bunch_source_metadata),
+        max_gamma,
+        psi, B_t,
+        p_shape,
+        False, rho, rho_e, rho_i,
+        chi,
+        False, ("none",),
+        k, k,
+    )
 
