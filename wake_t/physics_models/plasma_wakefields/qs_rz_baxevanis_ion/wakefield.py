@@ -18,6 +18,9 @@ from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
 from wake_t.particles.deposition import deposit_3d_distribution
 
+import time
+
+
 class Quasistatic2DWakefieldIon(RZWakefield):
     """
     This class calculates the plasma wakefields using the gridless
@@ -856,7 +859,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
         # finalize fields for the shaped qb_current
-        Ez_final, g_final = solve_with_qbunch(qb_current)
+        #Ez_final, g_final = solve_with_qbunch(qb_current)
         
         # sanitize chi to avoid NaNs/Infs killing laser envelope
         chi_int = self.chi[2:-2, 2:-2]
@@ -1181,6 +1184,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             print(bunches[0].w)
             if not self._initial_condition_done:
                 # ---- INITIAL CONDITION ONLY ----
+                start = time.perf_counter()
                 self._beamloading_initial_condition(
                     laser_a2,
                     radial_density,
@@ -1190,7 +1194,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     bunch_source_metadata,
                     bunches
                     )
-
+                end = time.perf_counter()
+                print(f"Elapsed: {end - start:.6f} s")
 
             print(bunches[0].w)
             
