@@ -21,6 +21,8 @@ from wake_t.particles.deposition import deposit_3d_distribution
 
 from .utils import longitudinal_gradient, radial_gradient
 
+import time
+
 
 
 class Quasistatic2DWakefieldIon(RZWakefield):
@@ -1642,6 +1644,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             print(bunches[0].w)
             if not self._initial_condition_done:
                 # ---- INITIAL CONDITION ONLY ----
+                start = time.perf_counter()
                 self._beamloading_initial_condition(
                     laser_a2,
                     radial_density,
@@ -1651,6 +1654,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     bunch_source_metadata,
                     bunches
                     )
+                end = time.perf_counter()
+                print(f"Elapsed: {end - start:.6f} s")
 
 
             print(bunches[0].w)
