@@ -1386,6 +1386,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+        s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
         k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
         
         # convert back to charge-like quantity
@@ -1400,8 +1401,28 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-
-
+    
+    def _build_sources_basegrid_only(self, bunches, laser_a2, radial_density):
+        s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+    
+        # Reset and deposit all bunches (or only the one you shape, but easiest: all)
+        self._reset_bunch_arrays()
+        for bunch in bunches:
+            deposit_bunch_charge(
+                bunch.x, bunch.y, bunch.xi, bunch.q,
+                self.n_p, self.n_r, self.n_xi,
+                self.r_fld, self.xi_fld,
+                self.dr, self.dxi, self.p_shape,
+                self.q_bunch,
+            )
+        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+    
+        bunch_source_arrays = [self.b_t_bunch]
+        bunch_source_xi_indices = [np.arange(self.n_xi)]
+        bunch_source_metadata = [np.array([self.r_fld[0], self.r_fld[-1] + 2*self.dr, self.dr]) / s_d]
+    
+        return bunch_source_arrays, bunch_source_xi_indices, bunch_source_metadata
+    
 
 
 
@@ -1448,6 +1469,31 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         bunch_source_xi_indices = []
         bunch_source_metadata = []
 
+
+        if (not self._initial_condition_done):
+            base_arrays, base_xi_idx, base_meta = self._build_sources_basegrid_only(
+                bunches, laser_a2, radial_density
+            )
+        
+            self._beamloading_initial_condition(
+                laser_a2, radial_density, store_plasma_history,
+                base_arrays, base_xi_idx, base_meta, bunches
+            )
+        
+            # IMPORTANT: after SALAME changed bunch weights, you MUST redeposit on base grid
+            # so the rest of this timestep uses updated q.
+            #base_arrays, base_xi_idx, base_meta = self._build_sources_basegrid_only(
+            #    bunches, laser_a2, radial_density
+            #)
+        
+            # Optional: if adaptive grids are enabled, sync them immediately for this same timestep:
+            #if self.use_adaptive_grids:
+            #    for bunch in bunches:
+            #        if bunch.name in self.bunch_grids:
+            #            self.bunch_grids[bunch.name].calculate_bunch_source(bunch, self.n_p, self.p_shape)
+
+
+
         # Calculate bunch sources and create adaptive grids if needed.
         s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
         deposit_outliers_on_base_grid = False
@@ -1488,6 +1534,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 if r_lim is not None and r_max is not None:
                     if r_max > r_lim:
                         raise ValueError("`r_max` cannot be larger than `r_lim`")
+
+
+
             # Create adaptive grids for each bunch.
             bunches_with_grid: List[ParticleBunch] = []
             bunches_without_grid: List[ParticleBunch] = []
@@ -1642,24 +1691,24 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 #                print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
-            print(bunches[0].w)
-            if not self._initial_condition_done:
-                # ---- INITIAL CONDITION ONLY ----
-                start = time.perf_counter()
-                self._beamloading_initial_condition(
-                    laser_a2,
-                    radial_density,
-                    store_plasma_history,
-                    bunch_source_arrays,
-                    bunch_source_xi_indices,
-                    bunch_source_metadata,
-                    bunches
-                    )
-                end = time.perf_counter()
-                print(f"Elapsed: {end - start:.6f} s")
+            #print(bunches[0].w)
+            #if not self._initial_condition_done:
+            #    # ---- INITIAL CONDITION ONLY ----
+            #    start = time.perf_counter()
+            #    self._beamloading_initial_condition(
+            #        laser_a2,
+            #        radial_density,
+            #        store_plasma_history,
+            #        bunch_source_arrays,
+            #        bunch_source_xi_indices,
+            #        bunch_source_metadata,
+            #        bunches
+            #        )
+            #    end = time.perf_counter()
+            #    print(f"Elapsed: {end - start:.6f} s")
 
 
-            print(bunches[0].w)
+            #print(bunches[0].w)
             
 
 
@@ -1679,7 +1728,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 #                )
 
 
-            if self._initial_condition_done:
+            if True:
                 calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
                 if len(bunch_source_arrays) == 0:
                     bunch_source_arrays.append(self.b_t_bunch)
@@ -1696,7 +1745,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-        if self._initial_condition_done:
+        if True:
 
             # Calculate rho only if requested in the diagnostics.
             calculate_rho = any("rho" in diag for diag in self.field_diags)
