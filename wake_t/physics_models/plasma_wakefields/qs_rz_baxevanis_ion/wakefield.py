@@ -1479,7 +1479,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 laser_a2, radial_density, store_plasma_history,
                 base_arrays, base_xi_idx, base_meta, bunches
             )
-        
+
+            self._reset_bunch_arrays()
+
+            bunch_source_arrays = []
+            bunch_source_xi_indices = []
+            bunch_source_metadata = []
+
             # IMPORTANT: after SALAME changed bunch weights, you MUST redeposit on base grid
             # so the rest of this timestep uses updated q.
             #base_arrays, base_xi_idx, base_meta = self._build_sources_basegrid_only(
@@ -1738,34 +1744,35 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         
 
 
-            if True:
-                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-                bunch_source_arrays.append(self.b_t_bunch)
-                bunch_source_xi_indices.append(np.arange(self.n_xi))
-                bunch_source_metadata.append(
-                    np.array(
-                        [
-                            self.r_fld[0],
-                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-                            self.dr,
-                        ]
-                    )
-                    / s_d
-                )
-
-
 #            if True:
 #                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-#                if len(bunch_source_arrays) == 0:
-#                    bunch_source_arrays.append(self.b_t_bunch)
-#                    bunch_source_xi_indices.append(np.arange(self.n_xi))
-#                    bunch_source_metadata.append(
-#                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+#                bunch_source_arrays.append(self.b_t_bunch)
+#                bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                bunch_source_metadata.append(
+#                    np.array(
+#                        [
+#                            self.r_fld[0],
+#                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+#                            self.dr,
+#                        ]
 #                    )
-#                else:
-#                    # overwrite base-grid source (don’t append duplicates)
-#                    bunch_source_arrays[0] = self.b_t_bunch
+#                    / s_d
+#                )
 
+
+            if True:
+                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+                if len(bunch_source_arrays) == 0:
+                    bunch_source_arrays.append(self.b_t_bunch)
+                    bunch_source_xi_indices.append(np.arange(self.n_xi))
+                    bunch_source_metadata.append(
+                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+                    )
+                else:
+                    # overwrite base-grid source (don’t append duplicates)
+                    bunch_source_arrays[0] = self.b_t_bunch
+                    bunch_source_xi_indices[0] = np.arange(self.n_xi)   # optional; keep consistent
+                    bunch_source_metadata[0] = np.array([self.r_fld[0], self.r_fld[-1] + 2*self.dr, self.dr]) / s_d
 
 
 
