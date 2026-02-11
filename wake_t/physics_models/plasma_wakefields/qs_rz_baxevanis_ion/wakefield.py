@@ -1709,36 +1709,62 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
             #print(bunches[0].w)
-            
 
 
-#            if self._initial_condition_done:
+
+
+#            # After adaptive-grid source building
+#            # Only add base-grid source if base grid actually has charge (outliers or no-grid bunches)
+#            if (not self.use_adaptive_grids) or deposit_outliers_on_base_grid or bunches_without_grid:
 #                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-#                bunch_source_arrays.append(self.b_t_bunch)
-#                bunch_source_xi_indices.append(np.arange(self.n_xi))
-#                bunch_source_metadata.append(
-#                    np.array(
-#                        [
-#                            self.r_fld[0],
-#                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-#                            self.dr,
-#                        ]
+#            
+#                if not self.use_adaptive_grids:
+#                    # base-grid-only mode: base source must be in slot 0
+#                    if len(bunch_source_arrays) == 0:
+#                        bunch_source_arrays.append(self.b_t_bunch)
+#                        bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                        bunch_source_metadata.append(
+#                            np.array([self.r_fld[0], self.r_fld[-1] + 2*self.dr, self.dr]) / s_d
+#                        )
+#                    else:
+#                        bunch_source_arrays[0] = self.b_t_bunch
+#                else:
+#                    # adaptive-grid mode: base grid is an extra source (append)
+#                    bunch_source_arrays.append(self.b_t_bunch)
+#                    bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                    bunch_source_metadata.append(
+#                        np.array([self.r_fld[0], self.r_fld[-1] + 2*self.dr, self.dr]) / s_d
 #                    )
-#                    / s_d
-#                )
+        
 
 
             if True:
                 calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-                if len(bunch_source_arrays) == 0:
-                    bunch_source_arrays.append(self.b_t_bunch)
-                    bunch_source_xi_indices.append(np.arange(self.n_xi))
-                    bunch_source_metadata.append(
-                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+                bunch_source_arrays.append(self.b_t_bunch)
+                bunch_source_xi_indices.append(np.arange(self.n_xi))
+                bunch_source_metadata.append(
+                    np.array(
+                        [
+                            self.r_fld[0],
+                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                            self.dr,
+                        ]
                     )
-                else:
-                    # overwrite base-grid source (don’t append duplicates)
-                    bunch_source_arrays[0] = self.b_t_bunch
+                    / s_d
+                )
+
+
+#            if True:
+#                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+#                if len(bunch_source_arrays) == 0:
+#                    bunch_source_arrays.append(self.b_t_bunch)
+#                    bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                    bunch_source_metadata.append(
+#                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+#                    )
+#                else:
+#                    # overwrite base-grid source (don’t append duplicates)
+#                    bunch_source_arrays[0] = self.b_t_bunch
 
 
 
