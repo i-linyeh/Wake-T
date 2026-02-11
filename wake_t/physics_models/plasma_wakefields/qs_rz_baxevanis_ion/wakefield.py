@@ -1331,13 +1331,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
         # finalize q_bunch with shaped qb_current
-        self.q_bunch[:, :] = qb_current
-        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-        bunch_source_arrays[0] = self.b_t_bunch
+        #self.q_bunch[:, :] = qb_current
+        #calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+        #bunch_source_arrays[0] = self.b_t_bunch
 
 
-        # finalize fields for the shaped qb_current
-        Ez_final, g_final = solve_with_qbunch(qb_current)
+        ## finalize fields for the shaped qb_current
+        #Ez_final, g_final = solve_with_qbunch(qb_current)
         
         # sanitize chi to avoid NaNs/Infs killing laser envelope
         chi_int = self.chi[2:-2, 2:-2]
@@ -1479,8 +1479,20 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 laser_a2, radial_density, store_plasma_history,
                 base_arrays, base_xi_idx, base_meta, bunches
             )
+            ## >>> CRITICAL: redeposit with UPDATED bunch weights <<<
+            #base_arrays, base_xi_idx, base_meta = self._build_sources_basegrid_only(
+            #    bunches, laser_a2, radial_density
+            #)
+        
+            ## Use these as the sources for the remainder of THIS timestep
+            #bunch_source_arrays = base_arrays
+            #bunch_source_xi_indices = base_xi_idx
+            #bunch_source_metadata = base_meta
 
-            self._reset_bunch_arrays()
+
+
+
+            #self._reset_bunch_arrays()
 
             bunch_source_arrays = []
             bunch_source_xi_indices = []
@@ -1600,22 +1612,35 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         if bunches_without_grid or deposit_outliers_on_base_grid:
             self._reset_bunch_arrays()
             for bunch in bunches_without_grid:
-                deposit_bunch_charge(
-                    bunch.x,
-                    bunch.y,
-                    bunch.xi,
-                    bunch.q,
-                    self.n_p,
-                    self.n_r,
-                    self.n_xi,
-                    self.r_fld,
-                    self.xi_fld,
-                    self.dr,
-                    self.dxi,
-                    self.p_shape,
-                    self.q_bunch,
-                )
+                #deposit_bunch_charge(
+                #    bunch.x,
+                #    bunch.y,
+                #    bunch.xi,
+                #    bunch.q,
+                #    self.n_p,
+                #    self.n_r,
+                #    self.n_xi,
+                #    self.r_fld,
+                #    self.xi_fld,
+                #    self.dr,
+                #    self.dxi,
+                #    self.p_shape,
+                #    self.q_bunch,
+                #)
                 
+
+
+
+                # >>> CRITICAL: redeposit with UPDATED bunch weights <<<
+                base_arrays, base_xi_idx, base_meta = self._build_sources_basegrid_only(
+                    bunches, laser_a2, radial_density
+                )
+
+                # Use these as the sources for the remainder of THIS timestep
+                bunch_source_arrays = base_arrays
+                bunch_source_xi_indices = base_xi_idx
+                bunch_source_metadata = base_meta
+
 
 
 #                #This block of code is to test the inverse_deposit_3d distribution function
@@ -1760,7 +1785,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 #                )
 
 
-            if True:
+            if False:
                 calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
                 if len(bunch_source_arrays) == 0:
                     bunch_source_arrays.append(self.b_t_bunch)
