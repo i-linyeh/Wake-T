@@ -1396,31 +1396,32 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         bunches[0].w = w_est
         
+        #bunches[0].q[:] = bunches[0].w * bunches[0].q_species
         print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
         #self.q_bunch=[]
         self.b_t_bunch[:] = 0.0
-        self.q_bunch[:] = 0.0
+        #self.q_bunch[:] = 0.0
 
-        for bunch in bunches:
-            deposit_bunch_charge(
-                bunch.x,
-                bunch.y,
-                bunch.xi,
-                bunch.q,
-                self.n_p,
-                self.n_r,
-                self.n_xi,
-                self.r_fld,
-                self.xi_fld,
-                self.dr,
-                self.dxi,
-                self.p_shape,
-                self.q_bunch,
-            )
-                
+        #for bunch in bunches:
+        #    deposit_bunch_charge(
+        #        bunch.x,
+        #        bunch.y,
+        #        bunch.xi,
+        #        bunch.q,
+        #        self.n_p,
+        #        self.n_r,
+        #        self.n_xi,
+        #        self.r_fld,
+        #        self.xi_fld,
+        #        self.dr,
+        #        self.dxi,
+        #        self.p_shape,
+        #        self.q_bunch,
+        #    )
+        #        
 
-        print([np.max(self.q_bunch),np.min(self.q_bunch)])
+        #print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
         #bunch_source_arrays = []
@@ -1540,6 +1541,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 all_deposited = grid.calculate_bunch_source(
                     bunch, self.n_p, self.p_shape
                 )
+               
+                bunch_source_arrays = []
+                bunch_source_xi_indices = []
+                bunch_source_metadata = []
+
+
+
                 bunch_source_arrays.append(grid.b_t_bunch)
                 bunch_source_xi_indices.append(grid.i_grid)
                 bunch_source_metadata.append(

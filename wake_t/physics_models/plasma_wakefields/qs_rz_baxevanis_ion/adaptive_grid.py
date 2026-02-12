@@ -206,7 +206,7 @@ class AdaptiveGrid:
         )
 
 
-        print(bunches[0].w)
+        print(bunch.w)
         if not self._initial_condition_done:
             # ---- INITIAL CONDITION ONLY ----
             start = time.perf_counter()
@@ -223,7 +223,7 @@ class AdaptiveGrid:
             print(f"Elapsed: {end - start:.6f} s")
 
 
-        print(bunches[0].w)
+        print(bunch.w)
 
 
         calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
