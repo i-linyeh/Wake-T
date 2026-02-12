@@ -204,6 +204,28 @@ class AdaptiveGrid:
             p_shape,
             self.q_bunch,
         )
+
+
+        print(bunches[0].w)
+        if not self._initial_condition_done:
+            # ---- INITIAL CONDITION ONLY ----
+            start = time.perf_counter()
+            self._beamloading_initial_condition(
+                laser_a2,
+                radial_density,
+                store_plasma_history,
+                bunch_source_arrays,
+                bunch_source_xi_indices,
+                bunch_source_metadata,
+                bunches
+                )
+            end = time.perf_counter()
+            print(f"Elapsed: {end - start:.6f} s")
+
+
+        print(bunches[0].w)
+
+
         calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
         return all_deposited
 

@@ -1399,7 +1399,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
         #self.q_bunch=[]
-        self._reset_bunch_arrays()
+        self.b_t_bunch[:] = 0.0
+        self.q_bunch[:] = 0.0
 
         for bunch in bunches:
             deposit_bunch_charge(
@@ -1422,9 +1423,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
-        bunch_source_arrays = []
-        bunch_source_xi_indices = []
-        bunch_source_metadata = []
+        #bunch_source_arrays = []
+        #bunch_source_xi_indices = []
+        #bunch_source_metadata = []
 
 
 
@@ -1687,8 +1688,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             print(bunches[0].w)
             
 
+            #self.b_t_bunch[:] = 0.0
+            #self.b_t_bunch=[]
+            bunch_source_arrays = []
+            bunch_source_xi_indices = []
+            bunch_source_metadata = []
 
-            if self._initial_condition_done:
+
+
+
+            #if self._initial_condition_done:
+            if True:
                 calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
                 bunch_source_arrays.append(self.b_t_bunch)
                 bunch_source_xi_indices.append(np.arange(self.n_xi))
@@ -1704,6 +1714,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 )
 
 
+
+
+
+
 #            if True:
 #                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
 #                if len(bunch_source_arrays) == 0:
@@ -1715,7 +1729,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 #                else:
 #                    # overwrite base-grid source (don’t append duplicates)
 #                    bunch_source_arrays[0] = self.b_t_bunch
-
+#
 
 
 
@@ -1726,6 +1740,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # Calculate rho only if requested in the diagnostics.
             calculate_rho = any("rho" in diag for diag in self.field_diags)
     
+            print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
             # Calculate plasma wakefields
             self.pp = calculate_wakefields(
                 laser_a2,
