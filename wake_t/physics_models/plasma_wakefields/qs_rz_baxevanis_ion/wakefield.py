@@ -1541,7 +1541,50 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 all_deposited = grid.calculate_bunch_source(
                     bunch, self.n_p, self.p_shape
                 )
-               
+
+
+                #self.b_t_bunch[:] = 0.0
+                #self.q_bunch[:] = 0.0
+                #all_deposited = deposit_bunch_charge(
+                #    bunch.x,
+                #    bunch.y,
+                #    bunch.xi,
+                #    bunch.q,
+                #    self.n_p,
+                #    self.nr - self.nr_border,
+                #    self.nxi,
+                #    self.r_grid,
+                #    self.xi_grid,
+                #    self.dr,
+                #    self.dxi,
+                #    self.p_shape,
+                #    self.q_bunch,
+                #)
+        
+        
+                #print(bunch.w)
+                #if not self._initial_condition_done:
+                #    # ---- INITIAL CONDITION ONLY ----
+                #    start = time.perf_counter()
+                #    self._beamloading_initial_condition(
+                #        laser_a2,
+                #        radial_density,
+                #        store_plasma_history,
+                #        bunch_source_arrays,
+                #        bunch_source_xi_indices,
+                #        bunch_source_metadata,
+                #        bunches
+                #        )
+                #    end = time.perf_counter()
+                #    print(f"Elapsed: {end - start:.6f} s")
+        
+        
+                #print(bunch.w)
+        
+        
+                #calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
+
+
                 bunch_source_arrays = []
                 bunch_source_xi_indices = []
                 bunch_source_metadata = []
