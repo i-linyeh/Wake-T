@@ -1332,12 +1332,12 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         # finalize q_bunch with shaped qb_current
         self.q_bunch[:, :] = qb_current
-        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-        bunch_source_arrays[0] = self.b_t_bunch
+        #calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+        #bunch_source_arrays[0] = self.b_t_bunch
 
 
-        # finalize fields for the shaped qb_current
-        Ez_final, g_final = solve_with_qbunch(qb_current)
+        ## finalize fields for the shaped qb_current
+        #Ez_final, g_final = solve_with_qbunch(qb_current)
         
         # sanitize chi to avoid NaNs/Infs killing laser envelope
         chi_int = self.chi[2:-2, 2:-2]
@@ -1395,11 +1395,36 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
 
         bunches[0].w = w_est
+        
+        print([np.max(self.q_bunch),np.min(self.q_bunch)])
+
+        #self.q_bunch=[]
+        self._reset_bunch_arrays()
+
+        for bunch in bunches:
+            deposit_bunch_charge(
+                bunch.x,
+                bunch.y,
+                bunch.xi,
+                bunch.q,
+                self.n_p,
+                self.n_r,
+                self.n_xi,
+                self.r_fld,
+                self.xi_fld,
+                self.dr,
+                self.dxi,
+                self.p_shape,
+                self.q_bunch,
+            )
+                
+
+        print([np.max(self.q_bunch),np.min(self.q_bunch)])
 
 
-
-
-
+        bunch_source_arrays = []
+        bunch_source_xi_indices = []
+        bunch_source_metadata = []
 
 
 
@@ -1663,40 +1688,40 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             
 
 
-#            if self._initial_condition_done:
-#                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-#                bunch_source_arrays.append(self.b_t_bunch)
-#                bunch_source_xi_indices.append(np.arange(self.n_xi))
-#                bunch_source_metadata.append(
-#                    np.array(
-#                        [
-#                            self.r_fld[0],
-#                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-#                            self.dr,
-#                        ]
-#                    )
-#                    / s_d
-#                )
-
-
             if self._initial_condition_done:
                 calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-                if len(bunch_source_arrays) == 0:
-                    bunch_source_arrays.append(self.b_t_bunch)
-                    bunch_source_xi_indices.append(np.arange(self.n_xi))
-                    bunch_source_metadata.append(
-                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+                bunch_source_arrays.append(self.b_t_bunch)
+                bunch_source_xi_indices.append(np.arange(self.n_xi))
+                bunch_source_metadata.append(
+                    np.array(
+                        [
+                            self.r_fld[0],
+                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                            self.dr,
+                        ]
                     )
-                else:
-                    # overwrite base-grid source (don’t append duplicates)
-                    bunch_source_arrays[0] = self.b_t_bunch
+                    / s_d
+                )
+
+
+#            if True:
+#                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+#                if len(bunch_source_arrays) == 0:
+#                    bunch_source_arrays.append(self.b_t_bunch)
+#                    bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                    bunch_source_metadata.append(
+#                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+#                    )
+#                else:
+#                    # overwrite base-grid source (don’t append duplicates)
+#                    bunch_source_arrays[0] = self.b_t_bunch
 
 
 
 
 
 
-        if self._initial_condition_done:
+        if True:
 
             # Calculate rho only if requested in the diagnostics.
             calculate_rho = any("rho" in diag for diag in self.field_diags)
