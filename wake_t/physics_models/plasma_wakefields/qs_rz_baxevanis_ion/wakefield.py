@@ -23,6 +23,9 @@ from .utils import longitudinal_gradient, radial_gradient
 
 import time
 
+from .beamloading_initial_condition import beamloading_initial_condition
+
+
 
 
 class Quasistatic2DWakefieldIon(RZWakefield):
@@ -1526,6 +1529,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                             bunch.x,
                             bunch.y,
                             bunch.xi,
+                            bunch.w,
                             bunch.name,
                             nr_grids[i],
                             self.n_xi,
@@ -1538,11 +1542,63 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # Calculate bunch sources at each grid.
             for bunch in bunches_with_grid:
                 grid = self.bunch_grids[bunch.name]
+                #all_deposited = grid.calculate_bunch_source(
+                #    bunch, self.n_p, self.p_shape
+                #)
+
+
+
+                do_beamloading = (not self._initial_condition_done)
+                
                 all_deposited = grid.calculate_bunch_source(
-                    bunch, self.n_p, self.p_shape
+                    bunch,
+                    n_p=self.n_p,
+                    ppc=self.ppc,
+                    r_max=self.r_max,
+                    xi_min=self.xi_min,
+                    xi_max=self.xi_max,
+                    r_max_plasma=self.r_max_plasma,
+                    p_shape=self.p_shape,
+                    max_gamma=self.max_gamma,
+                    plasma_pusher=self.plasma_pusher,
+                    ion_motion=self.ion_motion,
+                    ion_mass=self.ion_mass,
+                    free_electrons_per_ion=self.free_electrons_per_ion,
+                    field_diags=self.field_diags,
+                    laser_a2=laser_a2,
+                    radial_density=radial_density,
+                    do_beamloading=do_beamloading,
                 )
+                
+                if do_beamloading:
+                    self._initial_condition_done = True
+                
 
 
+                #all_deposited = grid.calculate_bunch_source(
+                #    bunch,
+                #    n_p=self.n_p,
+                #    ppc=self.ppc,
+                #    r_max=self.r_max,
+                #    xi_min=self.xi_min,
+                #    xi_max=self.xi_max,
+                #    r_max_plasma=self.r_max_plasma,
+                #    p_shape=self.p_shape,
+                #    max_gamma=self.max_gamma,
+                #    plasma_pusher=self.plasma_pusher,
+                #    ion_motion=self.ion_motion,
+                #    ion_mass=self.ion_mass,
+                #    free_electrons_per_ion=self.free_electrons_per_ion,
+                #    field_diags=self.field_diags,
+                #    fld_arrays=self.fld_arrays,
+                #    laser_a2=laser_a2,
+                #    radial_density=radial_density,
+                #    chi=self.chi,
+
+                #)
+
+
+                print(f"{all_deposited=}")
                 #self.b_t_bunch[:] = 0.0
                 #self.q_bunch[:] = 0.0
                 #all_deposited = deposit_bunch_charge(
@@ -1620,6 +1676,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             bunches_without_grid = bunches
         # If not using adaptive grids, add all sources to the same array.
         if bunches_without_grid or deposit_outliers_on_base_grid:
+            print("bunch w/o grid or deposit outliers")
             self._reset_bunch_arrays()
             for bunch in bunches_without_grid:
                 deposit_bunch_charge(
@@ -1723,15 +1780,58 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             if not self._initial_condition_done:
                 # ---- INITIAL CONDITION ONLY ----
                 start = time.perf_counter()
-                self._beamloading_initial_condition(
-                    laser_a2,
-                    radial_density,
-                    store_plasma_history,
-                    bunch_source_arrays,
-                    bunch_source_xi_indices,
-                    bunch_source_metadata,
-                    bunches
-                    )
+                #self._beamloading_initial_condition(
+                #    laser_a2,
+                #    radial_density,
+                #    store_plasma_history,
+                #    bunch_source_arrays,
+                #    bunch_source_xi_indices,
+                #    bunch_source_metadata,
+                #    bunches
+                #    )
+
+
+                
+                beamloading_initial_condition(
+                    # --- grid arrays/geometry (base grid) ---
+                    q_bunch=self.q_bunch,
+                    b_t_bunch=self.b_t_bunch,
+                    chi=self.chi,
+                    r_fld=self.r_fld,
+                    xi_fld=self.xi_fld,
+                    dr=self.dr,
+                    dxi=self.dxi,
+                    n_r=self.n_r,
+                    n_xi=self.n_xi,
+                
+                    # --- solver/plasma params ---
+                    n_p=self.n_p,
+                    ppc=self.ppc,
+                    r_max=self.r_max,
+                    xi_min=self.xi_min,
+                    xi_max=self.xi_max,
+                    r_max_plasma=self.r_max_plasma,
+                    p_shape=self.p_shape,
+                    max_gamma=self.max_gamma,
+                    plasma_pusher=self.plasma_pusher,
+                    ion_motion=self.ion_motion,
+                    ion_mass=self.ion_mass,
+                    free_electrons_per_ion=self.free_electrons_per_ion,
+                    field_diags=self.field_diags,
+                    fld_arrays=self.fld_arrays,
+                
+                    # --- runtime ---
+                    laser_a2=laser_a2,
+                    radial_density=radial_density,
+                    bunch_source_arrays=bunch_source_arrays,
+                    bunch_source_xi_indices=bunch_source_xi_indices,
+                    bunch_source_metadata=bunch_source_metadata,
+                    bunch=bunches[0],
+                )
+                
+
+
+
                 end = time.perf_counter()
                 print(f"Elapsed: {end - start:.6f} s")
 

@@ -1,6 +1,6 @@
 """Contains the definition of the `AdaptiveGrid` class."""
 
-from typing import Optional
+from typing import Optional, Callable, List, Union, Dict
 
 import numpy as np
 import scipy.constants as ct
@@ -10,8 +10,20 @@ from wake_t.utilities.numba import njit_serial
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 from .psi_and_derivatives import calculate_psi_with_interpolation
 from .b_theta import calculate_b_theta_with_interpolation
-from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge
+from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge, calculate_bunch_source_slice
 from .utils import longitudinal_gradient, radial_gradient
+
+from .solver import calculate_wakefields, calculate_wakefields_ez_slice, calculate_wakefields_ez_km1_from_cache, build_pp_cache_at_kp1, commit_cache_one_slice
+
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
+from wake_t.particles.deposition import deposit_3d_distribution
+
+
+import time
+
+
+from .beamloading_initial_condition import beamloading_initial_condition
+
 
 
 class AdaptiveGrid:
@@ -55,6 +67,7 @@ class AdaptiveGrid:
         x: np.ndarray,
         y: np.ndarray,
         xi: np.ndarray,
+        w: np.ndarray,
         bunch_name: str,
         nr: int,
         nxi: int,
@@ -93,6 +106,17 @@ class AdaptiveGrid:
     def r_max_cell_guard(self):
         """Radial position of last guard grid cell."""
         return self.r_grid[-1] + 2 * self.dr
+
+
+
+
+
+
+
+
+
+
+
 
     def update_if_needed(self, x, y, xi, n_p, pp_hist):
         """
@@ -175,18 +199,95 @@ class AdaptiveGrid:
         self.e_r *= -E_0
         self.b_t *= E_0 / ct.c
 
-    def calculate_bunch_source(self, bunch, n_p, p_shape):
-        """Calculate the source term (B_theta) of the bunch within the grid.
+#    def calculate_bunch_source(self, bunch, n_p, p_shape):
+#        """Calculate the source term (B_theta) of the bunch within the grid.
+#
+#        Parameters
+#        ----------
+#        bunch : ParticleBunch
+#            The particle bunch.
+#        n_p : float
+#            The plasma density.
+#        p_shape : str
+#            The particle shape.
+#        """
+#        self.b_t_bunch[:] = 0.0
+#        self.q_bunch[:] = 0.0
+#        all_deposited = deposit_bunch_charge(
+#            bunch.x,
+#            bunch.y,
+#            bunch.xi,
+#            bunch.q,
+#            n_p,
+#            self.nr - self.nr_border,
+#            self.nxi,
+#            self.r_grid,
+#            self.xi_grid,
+#            self.dr,
+#            self.dxi,
+#            p_shape,
+#            self.q_bunch,
+#        )
+#
+#
+#        print(bunch.w)
+#        if not self._initial_condition_done:
+#            # ---- INITIAL CONDITION ONLY ----
+#            start = time.perf_counter()
+#            self._beamloading_initial_condition(
+#                laser_a2,
+#                radial_density,
+#                store_plasma_history,
+#                bunch_source_arrays,
+#                bunch_source_xi_indices,
+#                bunch_source_metadata,
+#                bunch
+#                )
+#            end = time.perf_counter()
+#            print(f"Elapsed: {end - start:.6f} s")
+#
+#
+#        print(bunch.w)
+#
+#
+#
+#        bunch_source_arrays = []
+#        bunch_source_xi_indices = []
+#        bunch_source_metadata = []
+#
+#
+#
+#
+#
+#
+#        calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
+#        return all_deposited
 
-        Parameters
-        ----------
-        bunch : ParticleBunch
-            The particle bunch.
-        n_p : float
-            The plasma density.
-        p_shape : str
-            The particle shape.
-        """
+
+
+    def calculate_bunch_source(
+        self,
+        bunch,
+        *,
+        n_p,
+        ppc,
+        r_max,
+        xi_min,
+        xi_max,
+        r_max_plasma,
+        p_shape,
+        max_gamma,
+        plasma_pusher,
+        ion_motion,
+        ion_mass,
+        free_electrons_per_ion,
+        field_diags,
+        laser_a2,
+        radial_density,
+        do_beamloading: bool,
+    ):
+    
+
         self.b_t_bunch[:] = 0.0
         self.q_bunch[:] = 0.0
         all_deposited = deposit_bunch_charge(
@@ -207,27 +308,67 @@ class AdaptiveGrid:
 
 
         print(bunch.w)
-        if not self._initial_condition_done:
-            # ---- INITIAL CONDITION ONLY ----
+        
+        if do_beamloading:
             start = time.perf_counter()
-            self._beamloading_initial_condition(
-                laser_a2,
-                radial_density,
-                store_plasma_history,
-                bunch_source_arrays,
-                bunch_source_xi_indices,
-                bunch_source_metadata,
-                bunches
-                )
+        
+            beamloading_initial_condition(
+                # --- grid arrays/geometry (adaptive grid) ---
+                q_bunch=self.q_bunch,
+                b_t_bunch=self.b_t_bunch,
+                chi=self.chi,
+                r_fld=self.r_grid,
+                xi_fld=self.xi_grid,
+                dr=self.dr,
+                dxi=self.dxi,
+                n_r=self.nr,
+                n_xi=self.nxi,
+        
+                # --- solver/plasma params ---
+                n_p=n_p,
+                ppc=ppc,
+                r_max=r_max,
+                xi_min=xi_min,
+                xi_max=xi_max,
+                r_max_plasma=r_max_plasma,
+                p_shape=p_shape,
+                max_gamma=max_gamma,
+                plasma_pusher=plasma_pusher,
+                ion_motion=ion_motion,
+                ion_mass=ion_mass,
+                free_electrons_per_ion=free_electrons_per_ion,
+                field_diags=field_diags,
+                fld_arrays=self.fld_arrays,   # <-- IMPORTANT: adaptive-grid sized
+        
+                # --- runtime ---
+                laser_a2=laser_a2,
+                radial_density=radial_density,
+        
+                # sources for THIS grid
+                bunch_source_arrays=[self.b_t_bunch],
+                bunch_source_xi_indices=[self.i_grid],
+                bunch_source_metadata=[
+                    np.array([self.r_min_cell, self.r_max_cell_guard, self.dr]) /
+                    ge.plasma_skin_depth(n_p * 1e-6)
+                ],
+                bunch=bunch,
+            )
+        
             end = time.perf_counter()
             print(f"Elapsed: {end - start:.6f} s")
-
-
+        
         print(bunch.w)
-
-
+        
+        # Always re-build b_t_bunch from final q_bunch
         calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
         return all_deposited
+        
+
+
+
+
+
+
 
     def gather_fields(self, x, y, z, ex, ey, ez, bx, by, bz):
         """Gather the plasma fields at the location of the bunch particles.
@@ -363,6 +504,30 @@ class AdaptiveGrid:
         self.e_z = np.zeros((self.nxi + 4, self.nr + 4))
         self.b_t_bunch = np.zeros((self.nxi + 4, self.nr + 4))
         self.q_bunch = np.zeros((self.nxi + 4, self.nr + 4))
+
+        # Allocate solver field arrays (adaptive-grid sized)
+        self.rho   = np.zeros((self.nxi + 4, self.nr + 4))
+        self.rho_e = np.zeros((self.nxi + 4, self.nr + 4))
+        self.rho_i = np.zeros((self.nxi + 4, self.nr + 4))
+        self.chi   = np.zeros((self.nxi + 4, self.nr + 4))
+        
+        # Layout consistent with wakefield.py: [rho, rho_e, rho_i, chi, e_r, e_z, b_t, xi_fld, r_fld]
+        self.fld_arrays = [
+            self.rho,
+            self.rho_e,
+            self.rho_i,
+            self.chi,
+            self.e_r,
+            self.e_z,
+            self.b_t,
+            self.xi_grid,
+            self.r_grid,
+        ]
+        
+
+
+
+
 
     def _reset_fields(self):
         """Reset value of the fields at the grid."""
