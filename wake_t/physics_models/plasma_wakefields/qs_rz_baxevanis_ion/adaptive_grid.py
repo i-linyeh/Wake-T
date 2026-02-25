@@ -199,37 +199,37 @@ class AdaptiveGrid:
         self.e_r *= -E_0
         self.b_t *= E_0 / ct.c
 
-#    def calculate_bunch_source(self, bunch, n_p, p_shape):
-#        """Calculate the source term (B_theta) of the bunch within the grid.
-#
-#        Parameters
-#        ----------
-#        bunch : ParticleBunch
-#            The particle bunch.
-#        n_p : float
-#            The plasma density.
-#        p_shape : str
-#            The particle shape.
-#        """
-#        self.b_t_bunch[:] = 0.0
-#        self.q_bunch[:] = 0.0
-#        all_deposited = deposit_bunch_charge(
-#            bunch.x,
-#            bunch.y,
-#            bunch.xi,
-#            bunch.q,
-#            n_p,
-#            self.nr - self.nr_border,
-#            self.nxi,
-#            self.r_grid,
-#            self.xi_grid,
-#            self.dr,
-#            self.dxi,
-#            p_shape,
-#            self.q_bunch,
-#        )
-#
-#
+    def calculate_bunch_source(self, bunch, n_p, p_shape):
+        """Calculate the source term (B_theta) of the bunch within the grid.
+
+        Parameters
+        ----------
+        bunch : ParticleBunch
+            The particle bunch.
+        n_p : float
+            The plasma density.
+        p_shape : str
+            The particle shape.
+        """
+        self.b_t_bunch[:] = 0.0
+        self.q_bunch[:] = 0.0
+        all_deposited = deposit_bunch_charge(
+            bunch.x,
+            bunch.y,
+            bunch.xi,
+            bunch.q,
+            n_p,
+            self.nr - self.nr_border,
+            self.nxi,
+            self.r_grid,
+            self.xi_grid,
+            self.dr,
+            self.dxi,
+            p_shape,
+            self.q_bunch,
+        )
+
+
 #        print(bunch.w)
 #        if not self._initial_condition_done:
 #            # ---- INITIAL CONDITION ONLY ----
@@ -254,115 +254,115 @@ class AdaptiveGrid:
 #        bunch_source_arrays = []
 #        bunch_source_xi_indices = []
 #        bunch_source_metadata = []
-#
-#
-#
-#
-#
-#
-#        calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
-#        return all_deposited
 
 
 
-    def calculate_bunch_source(
-        self,
-        bunch,
-        *,
-        n_p,
-        ppc,
-        r_max,
-        xi_min,
-        xi_max,
-        r_max_plasma,
-        p_shape,
-        max_gamma,
-        plasma_pusher,
-        ion_motion,
-        ion_mass,
-        free_electrons_per_ion,
-        field_diags,
-        laser_a2,
-        radial_density,
-        do_beamloading: bool,
-    ):
-    
-
-        self.b_t_bunch[:] = 0.0
-        self.q_bunch[:] = 0.0
-        all_deposited = deposit_bunch_charge(
-            bunch.x,
-            bunch.y,
-            bunch.xi,
-            bunch.q,
-            n_p,
-            self.nr - self.nr_border,
-            self.nxi,
-            self.r_grid,
-            self.xi_grid,
-            self.dr,
-            self.dxi,
-            p_shape,
-            self.q_bunch,
-        )
 
 
-        print(bunch.w)
-        
-        if do_beamloading:
-            start = time.perf_counter()
-        
-            beamloading_initial_condition(
-                # --- grid arrays/geometry (adaptive grid) ---
-                q_bunch=self.q_bunch,
-                b_t_bunch=self.b_t_bunch,
-                chi=self.chi,
-                r_fld=self.r_grid,
-                xi_fld=self.xi_grid,
-                dr=self.dr,
-                dxi=self.dxi,
-                n_r=self.nr,
-                n_xi=self.nxi,
-        
-                # --- solver/plasma params ---
-                n_p=n_p,
-                ppc=ppc,
-                r_max=r_max,
-                xi_min=xi_min,
-                xi_max=xi_max,
-                r_max_plasma=r_max_plasma,
-                p_shape=p_shape,
-                max_gamma=max_gamma,
-                plasma_pusher=plasma_pusher,
-                ion_motion=ion_motion,
-                ion_mass=ion_mass,
-                free_electrons_per_ion=free_electrons_per_ion,
-                field_diags=field_diags,
-                fld_arrays=self.fld_arrays,   # <-- IMPORTANT: adaptive-grid sized
-        
-                # --- runtime ---
-                laser_a2=laser_a2,
-                radial_density=radial_density,
-        
-                # sources for THIS grid
-                bunch_source_arrays=[self.b_t_bunch],
-                bunch_source_xi_indices=[self.i_grid],
-                bunch_source_metadata=[
-                    np.array([self.r_min_cell, self.r_max_cell_guard, self.dr]) /
-                    ge.plasma_skin_depth(n_p * 1e-6)
-                ],
-                bunch=bunch,
-            )
-        
-            end = time.perf_counter()
-            print(f"Elapsed: {end - start:.6f} s")
-        
-        print(bunch.w)
-        
-        # Always re-build b_t_bunch from final q_bunch
+
         calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
         return all_deposited
-        
+
+
+
+#    def calculate_bunch_source(
+#        self,
+#        bunch,
+#        *,
+#        n_p,
+#        ppc,
+#        #r_max,
+#        #xi_min,
+#        #xi_max,
+#        r_max_plasma,
+#        p_shape,
+#        max_gamma,
+#        plasma_pusher,
+#        ion_motion,
+#        ion_mass,
+#        free_electrons_per_ion,
+#        field_diags,
+#        laser_a2,
+#        radial_density,
+#        do_beamloading: bool,
+#    ):
+#    
+#
+#        self.b_t_bunch[:] = 0.0
+#        self.q_bunch[:] = 0.0
+#        all_deposited = deposit_bunch_charge(
+#            bunch.x,
+#            bunch.y,
+#            bunch.xi,
+#            bunch.q,
+#            n_p,
+#            self.nr - self.nr_border,
+#            self.nxi,
+#            self.r_grid,
+#            self.xi_grid,
+#            self.dr,
+#            self.dxi,
+#            p_shape,
+#            self.q_bunch,
+#        )
+#
+#
+#        print(bunch.w)
+#        
+#        if do_beamloading:
+#            start = time.perf_counter()
+#        
+#            beamloading_initial_condition(
+#                # --- grid arrays/geometry (adaptive grid) ---
+#                q_bunch=self.q_bunch,
+#                b_t_bunch=self.b_t_bunch,
+#                chi=self.chi,
+#                r_fld=self.r_grid,
+#                xi_fld=self.xi_grid,
+#                dr=self.dr,
+#                dxi=self.dxi,
+#                n_r=self.nr,
+#                n_xi=self.nxi,
+#        
+#                # --- solver/plasma params ---
+#                n_p=n_p,
+#                ppc=ppc,
+#                r_max=self.r_max,
+#                xi_min=self.xi_min,
+#                xi_max=self.xi_max,
+#                r_max_plasma=r_max_plasma,
+#                p_shape=p_shape,
+#                max_gamma=max_gamma,
+#                plasma_pusher=plasma_pusher,
+#                ion_motion=ion_motion,
+#                ion_mass=ion_mass,
+#                free_electrons_per_ion=free_electrons_per_ion,
+#                field_diags=field_diags,
+#                fld_arrays=self.fld_arrays,   # <-- IMPORTANT: adaptive-grid sized
+#        
+#                # --- runtime ---
+#                laser_a2=laser_a2,
+#                radial_density=radial_density,
+#        
+#                # sources for THIS grid
+#                bunch_source_arrays=[self.b_t_bunch],
+#                bunch_source_xi_indices=[np.arange(self.nxi)],
+#                bunch_source_metadata=[
+#                    np.array([self.r_min_cell, self.r_max_cell_guard, self.dr]) /
+#                    ge.plasma_skin_depth(n_p * 1e-6)
+#                ],
+#                bunch=bunch,
+#            )
+#        
+#            end = time.perf_counter()
+#            print(f"Elapsed: {end - start:.6f} s")
+#        
+#        print(bunch.w)
+#        
+#        # Always re-build b_t_bunch from final q_bunch
+#        calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
+#        return all_deposited
+#        
 
 
 

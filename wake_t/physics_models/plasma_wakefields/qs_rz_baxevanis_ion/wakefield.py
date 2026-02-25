@@ -1542,36 +1542,36 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # Calculate bunch sources at each grid.
             for bunch in bunches_with_grid:
                 grid = self.bunch_grids[bunch.name]
-                #all_deposited = grid.calculate_bunch_source(
-                #    bunch, self.n_p, self.p_shape
-                #)
-
-
-
-                do_beamloading = (not self._initial_condition_done)
-                
                 all_deposited = grid.calculate_bunch_source(
-                    bunch,
-                    n_p=self.n_p,
-                    ppc=self.ppc,
-                    r_max=self.r_max,
-                    xi_min=self.xi_min,
-                    xi_max=self.xi_max,
-                    r_max_plasma=self.r_max_plasma,
-                    p_shape=self.p_shape,
-                    max_gamma=self.max_gamma,
-                    plasma_pusher=self.plasma_pusher,
-                    ion_motion=self.ion_motion,
-                    ion_mass=self.ion_mass,
-                    free_electrons_per_ion=self.free_electrons_per_ion,
-                    field_diags=self.field_diags,
-                    laser_a2=laser_a2,
-                    radial_density=radial_density,
-                    do_beamloading=do_beamloading,
+                    bunch, self.n_p, self.p_shape
                 )
-                
-                if do_beamloading:
-                    self._initial_condition_done = True
+
+
+
+                #do_beamloading = (not self._initial_condition_done)
+                #
+                #all_deposited = grid.calculate_bunch_source(
+                #    bunch,
+                #    n_p=self.n_p,
+                #    ppc=self.ppc,
+                #    #r_max=self.r_max,
+                #    #xi_min=self.xi_min,
+                #    #xi_max=self.xi_max,
+                #    r_max_plasma=self.r_max_plasma,
+                #    p_shape=self.p_shape,
+                #    max_gamma=self.max_gamma,
+                #    plasma_pusher=self.plasma_pusher,
+                #    ion_motion=self.ion_motion,
+                #    ion_mass=self.ion_mass,
+                #    free_electrons_per_ion=self.free_electrons_per_ion,
+                #    field_diags=self.field_diags,
+                #    laser_a2=laser_a2,
+                #    radial_density=radial_density,
+                #    do_beamloading=do_beamloading,
+                #)
+                #
+                #if do_beamloading:
+                #    self._initial_condition_done = True
                 
 
 
@@ -1618,32 +1618,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 #)
         
         
-                #print(bunch.w)
-                #if not self._initial_condition_done:
-                #    # ---- INITIAL CONDITION ONLY ----
-                #    start = time.perf_counter()
-                #    self._beamloading_initial_condition(
-                #        laser_a2,
-                #        radial_density,
-                #        store_plasma_history,
-                #        bunch_source_arrays,
-                #        bunch_source_xi_indices,
-                #        bunch_source_metadata,
-                #        bunches
-                #        )
-                #    end = time.perf_counter()
-                #    print(f"Elapsed: {end - start:.6f} s")
-        
-        
-                #print(bunch.w)
-        
-        
-                #calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
 
-
-                bunch_source_arrays = []
-                bunch_source_xi_indices = []
-                bunch_source_metadata = []
+                #bunch_source_arrays = []
+                #bunch_source_xi_indices = []
+                #bunch_source_metadata = []
 
 
 
