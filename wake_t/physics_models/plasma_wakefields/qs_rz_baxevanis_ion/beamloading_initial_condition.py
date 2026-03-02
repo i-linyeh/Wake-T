@@ -347,7 +347,10 @@ def beamloading_initial_condition(
         )
 
     # finalize q_bunch with shaped qb_current
-    #q_bunch[:, :] = qb_current
+    q_bunch[:, :] = qb_current
+
+    np.savez('q_bunch_current.npz', q_bunch=qb_current)
+
 
     # sanitize chi to avoid NaNs/Infs killing laser envelope
     chi_int = chi[2:-2, 2:-2]
@@ -361,12 +364,12 @@ def beamloading_initial_condition(
         bunch.xi, bunch.x, bunch.y,
         xi_fld[0], r_fld[0],
         n_xi, n_r, dxi, dr,
-        qb_current,
+        q_bunch,
         p_shape=p_shape,
         use_ruyten=True,
     )
 
-    count_grid = np.zeros_like(qb_current)
+    count_grid = np.zeros_like(q_bunch)
     ones = np.ones_like(bunch.q)
 
     deposit_3d_distribution(
