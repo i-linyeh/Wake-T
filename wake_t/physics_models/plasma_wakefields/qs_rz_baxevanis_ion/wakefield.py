@@ -296,6 +296,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         #self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
         self._initial_condition_done = False
 
+        self.use_SALAME = False
+
+
 
 
     def _initialize_properties(self, bunches):
@@ -386,7 +389,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         store_plasma_history = len(self.particle_diags) > 0
 
 
-        if (not self._initial_condition_done):
+        if self.use_SALAME and (not self._initial_condition_done):
         #if False:
             # 1) build a base-grid deposit of the (initial) bunch distribution
             start = time.perf_counter()
