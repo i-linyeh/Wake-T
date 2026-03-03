@@ -320,6 +320,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+    def _select_witness_bunch(self, bunches: List[ParticleBunch]) -> ParticleBunch:
+        # Option A: by name convention
+        for b in bunches:
+            if b.name.lower() in ["witness", "wit", "beam_witness"]:
+                return b
+        # Option B: assume last bunch is witness in beam-driven case
+        return bunches[-1]
 
 
 
@@ -331,18 +338,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-
-    def _deposit_all_bunches_to_base(self, bunches: List[ParticleBunch]):
-        #self._reset_bunch_arrays()
-        for bunch in bunches:
-            deposit_bunch_charge(
-                bunch.x, bunch.y, bunch.xi, bunch.q,   # bunch.q uses w*q_species
-                self.n_p, self.n_r, self.n_xi,
-                self.r_fld, self.xi_fld,
-                self.dr, self.dxi,
-                self.p_shape,
-                self.q_bunch,
-            )
+#    def _deposit_all_bunches_to_base(self, bunches: List[ParticleBunch]):
+#        #self._reset_bunch_arrays()
+#        for bunch in bunches:
+#            deposit_bunch_charge(
+#                bunch.x, bunch.y, bunch.xi, bunch.q,   # bunch.q uses w*q_species
+#                self.n_p, self.n_r, self.n_xi,
+#                self.r_fld, self.xi_fld,
+#                self.dr, self.dxi,
+#                self.p_shape,
+#                self.q_bunch,
+#            )
     
 
 
@@ -384,8 +390,43 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         #if False:
             # 1) build a base-grid deposit of the (initial) bunch distribution
             start = time.perf_counter()
-            self._deposit_all_bunches_to_base(bunches)
+            #self._deposit_all_bunches_to_base(bunches)
+
+
+
+            witness = self._select_witness_bunch(bunches)
         
+            # --- build q_fixed = deposit(all non-witness) ---
+            q_fixed = np.zeros_like(self.q_bunch)
+            for b in bunches:
+                if b is witness:
+                    continue
+                deposit_bunch_charge(
+                    b.x, b.y, b.xi, b.q,
+                    self.n_p, self.n_r, self.n_xi,
+                    self.r_fld, self.xi_fld,
+                    self.dr, self.dxi,
+                    self.p_shape,
+                    q_fixed,
+                )
+        
+            # --- build q_var = deposit(witness only) ---
+            q_var = np.zeros_like(self.q_bunch)
+            deposit_bunch_charge(
+                witness.x, witness.y, witness.xi, witness.q,
+                self.n_p, self.n_r, self.n_xi,
+                self.r_fld, self.xi_fld,
+                self.dr, self.dxi,
+                self.p_shape,
+                q_var,
+            )
+        
+            # store total into self.q_bunch for consistency (optional)
+            self.q_bunch[:] = q_fixed + q_var
+
+
+
+
             # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
             beamloading_initial_condition(
                 q_bunch=self.q_bunch,
@@ -418,8 +459,16 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 bunch_source_arrays=[],          # let the function init its own base slot
                 bunch_source_xi_indices=[],
                 bunch_source_metadata=[],
-                bunch=bunches[0],                # target bunch you want to shape
-            )
+                #bunch=bunches[0],                # target bunch you want to shape
+                bunch=witness,  # the only bunch whose weights get updated
+ 
+                # NEW: pass fixed + variable deposits separately
+                q_fixed=q_fixed,
+                q_var=q_var,
+
+
+
+                )
         
             # 3) IMPORTANT: after bunch.w changed, its bunch.q changes too
             #    so any future deposits/gathers must use the updated bunch.q.
@@ -910,7 +959,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # Calculate rho only if requested in the diagnostics.
             calculate_rho = any("rho" in diag for diag in self.field_diags)
     
-            print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
+            #print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
             # Calculate plasma wakefields
             self.pp = calculate_wakefields(
                 laser_a2,

@@ -54,7 +54,12 @@ def beamloading_initial_condition(
     bunch_source_xi_indices: list,
     bunch_source_metadata: list,
     bunch,  # single ParticleBunch
-):
+
+    q_fixed: np.ndarray,
+    q_var: np.ndarray,
+
+
+    ):
     """
     Standalone SALAME / beam-loading initial condition step.
 
@@ -93,15 +98,28 @@ def beamloading_initial_condition(
             s = w.sum()
         return float((Ez_r[2:-2] * w).sum() / s)
 
-    def set_slice_line_charge(qb2d: np.ndarray, k: int, g_new: float) -> np.ndarray:
-        qb_new = qb2d.copy()
-        g_old_all = q_bunch_line_from_qbunch(qb2d)
+#    def set_slice_line_charge(qb2d: np.ndarray, k: int, g_new: float) -> np.ndarray:
+#        qb_new = qb2d.copy()
+#        g_old_all = q_bunch_line_from_qbunch(qb2d)
+#        g_old = g_old_all[k]
+#        if g_old == 0.0:
+#            return qb_new
+#        s = g_new / g_old
+#        qb_new[2 + k, 2:-2] *= s
+#        return qb_new
+
+
+
+    def set_slice_line_charge_var(qb_var2d: np.ndarray, k: int, g_new: float) -> np.ndarray:
+        qb_new = qb_var2d.copy()
+        g_old_all = q_bunch_line_from_qbunch(qb_var2d)
         g_old = g_old_all[k]
         if g_old == 0.0:
             return qb_new
         s = g_new / g_old
         qb_new[2 + k, 2:-2] *= s
         return qb_new
+
 
 
 
@@ -171,15 +189,40 @@ def beamloading_initial_condition(
 
 
 
-    def solve_Ez_weighted_km1_cached(qb2d: np.ndarray, pp_cache, km1: int) -> float:
-        k = km1 + 1
-        if k < 2:
-            return 0.0
+#    def solve_Ez_weighted_km1_cached(qb2d: np.ndarray, pp_cache, km1: int) -> float:
+#        k = km1 + 1
+#        if k < 2:
+#            return 0.0
+#
+#        q_bunch[:, :] = qb2d
+#        calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
+#        bunch_source_arrays[0] = b_t_bunch
+#
+#        Ez_r = calculate_wakefields_ez_km1_from_cache(
+#            pp_cache, k,
+#            laser_a2, r_max, xi_min, xi_max,
+#            n_r, n_xi, n_p,
+#            radial_density=radial_density,
+#            r_max_plasma=r_max_plasma,
+#            p_shape=p_shape,
+#            max_gamma=max_gamma,
+#            bunch_source_arrays=bunch_source_arrays,
+#            bunch_source_xi_indices=bunch_source_xi_indices,
+#            bunch_source_metadata=bunch_source_metadata,
+#            fld_arrays=fld_arrays,
+#        )
+#        return Ez_weighted_at_slice(Ez_r, q_bunch, km1)
 
-        q_bunch[:, :] = qb2d
+
+
+    def solve_Ez_weighted_km1_cached(qb_var2d: np.ndarray, pp_cache, km1: int) -> float:
+        qb_total = qb_total_from_var(qb_var2d)
+    
+        q_bunch[:, :] = qb_total
+        k = km1 + 1
         calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
         bunch_source_arrays[0] = b_t_bunch
-
+    
         Ez_r = calculate_wakefields_ez_km1_from_cache(
             pp_cache, k,
             laser_a2, r_max, xi_min, xi_max,
@@ -193,7 +236,25 @@ def beamloading_initial_condition(
             bunch_source_metadata=bunch_source_metadata,
             fld_arrays=fld_arrays,
         )
-        return Ez_weighted_at_slice(Ez_r, q_bunch, km1)
+        # weight using witness slice only:
+        return Ez_weighted_at_slice(Ez_r, qb_var2d, km1)
+
+
+
+
+
+
+    def qb_total_from_var(qb_var: np.ndarray) -> np.ndarray:
+        return qb_fixed + qb_var
+
+
+
+
+
+
+
+
+
 
     # ----------------- SALAME iteration -----------------
 
@@ -208,16 +269,30 @@ def beamloading_initial_condition(
 
 
     qb_current = q_bunch.copy()
+
+
+    qb_fixed = q_fixed.copy()
+    qb_var_current = q_var.copy()
     
+
+
+    
+    g_line_var0 = q_bunch_line_from_qbunch(qb_var_current)
+    support = np.where(np.abs(g_line_var0) > 0.0)[0]
+    k_tail = support[-1]
+
+
+
     Ez_w0, g_line0, pp0 = solve_with_qbunch(qb_current)
     
     # define bunch-support indices (where there is charge)
-    support = np.where(np.abs(g_line0) > 0.0)[0]
-    if support.size < 2:
-        # nothing to shape
-        return
+    #support = np.where(np.abs(g_line0) > 0.0)[0]
+    #if support.size < 2:
+    #    # nothing to shape
+    #    return
     
-    k_tail = support[-1]
+    #k_tail = support[-1]
+    
     Ez_target = Ez_w0[k_tail]   # tail value target (flat)
     print(f"{Ez_target=}") 
 
@@ -265,13 +340,13 @@ def beamloading_initial_condition(
         g_max = 5.0 * g_line0[k]
         print(f"{g_max=}")
 
-        qb_min = set_slice_line_charge(qb_current, k, g_min)
+        qb_min = set_slice_line_charge_var(qb_var_current, k, g_min)
         Ez_min_km1 = solve_Ez_weighted_km1_cached(qb_min, pp_cache, k - 1)
 
-        qb_max = set_slice_line_charge(qb_current, k, g_max)
+        qb_max = set_slice_line_charge_var(qb_var_current, k, g_max)
         Ez_max_km1 = solve_Ez_weighted_km1_cached(qb_max, pp_cache, k - 1)
 
-        print("g_old =", q_bunch_line_from_qbunch(qb_current)[k])
+        print("g_old =", q_bunch_line_from_qbunch(qb_var_current)[k])
         print("g_min slice =", q_bunch_line_from_qbunch(qb_min)[k])
         print("g_max slice =", q_bunch_line_from_qbunch(qb_max)[k])
         print(f"{Ez_max_km1=}")
@@ -280,13 +355,13 @@ def beamloading_initial_condition(
         while np.abs(Ez_max_km1) > np.abs(Ez_target):
             print(f"{g_max=}")
             g_max *= 5.0
-            qb_max = set_slice_line_charge(qb_current, k, g_max)
+            qb_max = set_slice_line_charge_var(qb_var_current, k, g_max)
             Ez_max_km1 = solve_Ez_weighted_km1_cached(qb_max, pp_cache, k - 1)
             print(f"{Ez_max_km1=}")
             if g_max == 0.0 or not np.isfinite(g_max):
                 break
 
-        qb_new = qb_current
+        qb_new = qb_var_current
         Ez_new_km1 = Ez_min_km1
         for _ in range(max_iter):
             den = np.abs(Ez_max_km1 - Ez_min_km1)
@@ -299,7 +374,7 @@ def beamloading_initial_condition(
 
             if Ez_target < Ez_min_km1:
                 g_new = g_min
-                qb_try = set_slice_line_charge(qb_current, k, g_new)
+                qb_try = set_slice_line_charge_var(qb_var_current, k, g_new)
                 Ez_try_km1 = solve_Ez_weighted_km1_cached(qb_try, pp_cache, k - 1)
                 qb_new, Ez_new_km1 = qb_try, Ez_try_km1
                 print(f"{Ez_try_km1=}")
@@ -310,7 +385,7 @@ def beamloading_initial_condition(
             print(f"{wg=}")
             g_new = wg * g_max + (1.0 - wg) * g_min
 
-            qb_try = set_slice_line_charge(qb_current, k, g_new)
+            qb_try = set_slice_line_charge_var(qb_var_current, k, g_new)
             Ez_try_km1 = solve_Ez_weighted_km1_cached(qb_try, pp_cache, k - 1)
 
             print(f"{Ez_try_km1=}")
@@ -326,7 +401,9 @@ def beamloading_initial_condition(
             if rel < tol:
                 break
 
-        qb_current = qb_new
+        qb_var_current = qb_new
+
+        q_bunch[:, :] = qb_total_from_var(qb_var_current) 
 
         commit_cache_one_slice(
             pp_cache,
@@ -346,13 +423,17 @@ def beamloading_initial_condition(
             fld_arrays=fld_arrays,
         )
 
-    # finalize q_bunch with shaped qb_current
-    q_bunch[:, :] = qb_current
+    #q_bunch[:, :] = qb_current 
+    qb_total_final = qb_total_from_var(qb_var_current)
+    q_bunch[:, :] = qb_total_final
 
-    np.savez('q_bunch_current.npz', q_bunch=qb_current)
 
 
-    # sanitize chi to avoid NaNs/Infs killing laser envelope
+
+
+    np.savez('q_bunch_current.npz', q_bunch=q_bunch) 
+    
+    # sanitize chi to avoid NaNs/Infs killing laser envelope 
     chi_int = chi[2:-2, 2:-2]
     if not np.all(np.isfinite(chi_int)):
         chi_int[~np.isfinite(chi_int)] = 0.0
@@ -364,7 +445,7 @@ def beamloading_initial_condition(
         bunch.xi, bunch.x, bunch.y,
         xi_fld[0], r_fld[0],
         n_xi, n_r, dxi, dr,
-        q_bunch,
+        qb_var_current,
         p_shape=p_shape,
         use_ruyten=True,
     )
