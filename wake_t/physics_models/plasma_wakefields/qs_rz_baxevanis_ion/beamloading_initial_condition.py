@@ -441,6 +441,10 @@ def beamloading_initial_condition(
     # map shaped deposited qbunch -> particle charges, update bunch weights
     s_d = ge.plasma_skin_depth(n_p * 1e-6)
 
+
+
+    print(np.sum(qb_var_current))
+
     q_new, _ = inverse_deposit_3d_distribution(
         bunch.xi, bunch.x, bunch.y,
         xi_fld[0], r_fld[0],
@@ -475,9 +479,17 @@ def beamloading_initial_condition(
         p_shape=p_shape,
         use_ruyten=True,
     )
+    
+
+    print(np.sum(q_new/count_p))
 
     kfac = 1.0 / (2 * np.pi * ct.e * dr * dxi * s_d * n_p)
     q_est = q_new / kfac
+
+
+
+
+
 
     eps = 1e-30
     w_est = np.abs(q_est / bunch.q_species) / np.maximum(count_p, eps)
