@@ -558,21 +558,184 @@ def beamloading_initial_condition(
 
 
     # 1) Solve inverse by LSQR (masked)
-    fixed_sign = -1  # your qb_var_current sum is negative (electrons)
-    q_inv, info, count_grid, mask = inverse_deposit_lsqr(
+#    fixed_sign = -1  # your qb_var_current sum is negative (electrons)
+#    q_inv, info, count_grid, mask = inverse_deposit_lsqr(
+#        bunch.xi, bunch.x, bunch.y,
+#        xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+#        qb_var_current,
+#        use_ruyten=True,
+#        r_min_deposit=0.0,
+#        damp=1e-14,       # small damping helps conditioning; try 0, 1e-14, 1e-12
+#        atol=1e-12,
+#        btol=1e-12,
+#        iter_lim=1000,
+#        enforce_total=True,
+#        fixed_sign=fixed_sign,
+#    )
+
+
+
+
+
+    # Simple normalized gather (correct pseudoinverse for dense particle coverage)
+    q_gathered, _ = inverse_deposit_3d_distribution(
         bunch.xi, bunch.x, bunch.y,
-        xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+        xi_fld[0], r_fld[0],
+        n_xi, n_r, dxi, dr,
         qb_var_current,
+        p_shape=p_shape,
         use_ruyten=True,
         r_min_deposit=0.0,
-        damp=1e-14,       # small damping helps conditioning; try 0, 1e-14, 1e-12
-        atol=1e-12,
-        btol=1e-12,
-        iter_lim=1000,
-        enforce_total=True,
-        fixed_sign=fixed_sign,
     )
     
+    count_grid = np.zeros_like(qb_var_current)
+    ones = np.ones_like(bunch.xi)
+    deposit_3d_distribution(
+        bunch.xi, bunch.x, bunch.y, ones,
+        xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+        count_grid,
+        p_shape=p_shape,
+        use_ruyten=True,
+        r_min_deposit=0.0,
+    )
+    
+    # Gather the count grid back to particles
+    count_p, _ = inverse_deposit_3d_distribution(
+        bunch.xi, bunch.x, bunch.y,
+        xi_fld[0], r_fld[0],
+        n_xi, n_r, dxi, dr,
+        count_grid,
+        p_shape=p_shape,
+        use_ruyten=True,
+        r_min_deposit=0.0,
+    )
+    
+    eps = 1e-30
+    q_inv = q_gathered / np.maximum(count_p, eps)
+    
+    # Enforce total charge exactly
+    target_sum = np.sum(qb_var_current)
+    inv_sum = np.sum(q_inv)
+    if inv_sum != 0.0:
+        q_inv *= (target_sum / inv_sum)
+
+
+
+
+
+
+
+#    # For each particle, its weight = (slice line charge) / (number of particles in that slice)
+#    # This is exact by construction
+#    
+#    q_inv = np.zeros_like(bunch.xi)
+#    
+#    for k_slice in range(n_xi):
+#        # find particles in this xi slice
+#        xi_lo = xi_fld[k_slice] - dxi/2
+#        xi_hi = xi_fld[k_slice] + dxi/2
+#        mask_p = (bunch.xi >= xi_lo) & (bunch.xi < xi_hi)
+#        n_in_slice = np.sum(mask_p)
+#        if n_in_slice == 0:
+#            continue
+#        
+#        # total normalized charge in this slice from the shaped grid
+#        g_slice = np.sum(qb_var_current[2 + k_slice, 2:-2])
+#        
+#        # distribute equally among particles in this slice
+#        q_inv[mask_p] = g_slice / n_in_slice
+
+
+
+
+
+
+
+
+#    # Step 1: normalized gather as initial guess (your current method)
+#    q_gathered, _ = inverse_deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y,
+#        xi_fld[0], r_fld[0],
+#        n_xi, n_r, dxi, dr,
+#        qb_var_current,
+#        p_shape=p_shape,
+#        use_ruyten=True,
+#        r_min_deposit=0.0,
+#    )
+#    
+#    count_grid = np.zeros_like(qb_var_current)
+#    ones = np.ones_like(bunch.xi)
+#    deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y, ones,
+#        xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+#        count_grid,
+#        p_shape=p_shape,
+#        use_ruyten=True,
+#        r_min_deposit=0.0,
+#    )
+#    
+#    count_p, _ = inverse_deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y,
+#        xi_fld[0], r_fld[0],
+#        n_xi, n_r, dxi, dr,
+#        count_grid,
+#        p_shape=p_shape,
+#        use_ruyten=True,
+#        r_min_deposit=0.0,
+#    )
+#    
+#    eps = 1e-30
+#    q_inv = q_gathered / np.maximum(count_p, eps)
+#    
+#    # Step 2: iterative refinement
+#    n_iter = 200
+#    alpha = 0.5  # conservative step; tune if needed
+#    
+#    rho_buf = np.zeros_like(qb_var_current)
+#    for it in range(n_iter):
+#        rho_buf.fill(0.0)
+#        deposit_3d_distribution(
+#            bunch.xi, bunch.x, bunch.y, q_inv,
+#            xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+#            rho_buf,
+#            p_shape=p_shape,
+#            use_ruyten=True,
+#            r_min_deposit=0.0,
+#        )
+#    
+#        residual = qb_var_current - rho_buf   # grid residual
+#    
+#        # print every 20 iters to monitor convergence
+#        if it % 20 == 0:
+#            reldiff = np.max(np.abs(residual)) / (np.max(np.abs(qb_var_current)) + eps)
+#            print(f"  iter {it:4d}  rel_diff={reldiff:.6e}  sum_inv={np.sum(q_inv):.6e}")
+#    
+#        # gather residual back to particles, normalized by count_p
+#        res_gathered, _ = inverse_deposit_3d_distribution(
+#            bunch.xi, bunch.x, bunch.y,
+#            xi_fld[0], r_fld[0],
+#            n_xi, n_r, dxi, dr,
+#            residual,
+#            p_shape=p_shape,
+#            use_ruyten=True,
+#            r_min_deposit=0.0,
+#        )
+#        
+#        dw = res_gathered / np.maximum(count_p, eps)
+#        q_inv = q_inv + alpha * dw
+#    
+#    # Step 3: enforce total charge exactly
+#    target_sum = np.sum(qb_var_current)
+#    inv_sum = np.sum(q_inv)
+#    if inv_sum != 0.0:
+#        q_inv *= (target_sum / inv_sum)
+#    
+#    print(f"Final: sum_grid={target_sum:.6e}  sum_inv={np.sum(q_inv):.6e}")
+
+
+
+
+
     # 2) Check redeposit diff
     rho1 = np.zeros_like(qb_var_current)
     deposit_3d_distribution(
@@ -587,7 +750,7 @@ def beamloading_initial_condition(
     )
     absdiff = np.max(np.abs(rho1 - qb_var_current))
     reldiff = absdiff / (np.max(np.abs(qb_var_current)) + 1e-30)
-    print("LSQR info:", info)
+    #print("LSQR info:", info)
     print("inverse redeposit max abs diff:", absdiff)
     print("inverse redeposit rel diff    :", reldiff)
     print("sum grid:", np.sum(qb_var_current), "sum inv:", np.sum(q_inv))
