@@ -14,7 +14,7 @@ from .solver import (
     commit_cache_one_slice,
 )
 
-from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast
 from wake_t.particles.deposition import deposit_3d_distribution
 
 
@@ -439,49 +439,62 @@ def beamloading_initial_condition(
         chi_int[~np.isfinite(chi_int)] = 0.0
 
     # map shaped deposited qbunch -> particle charges, update bunch weights
-    s_d = ge.plasma_skin_depth(n_p * 1e-6)
+#    s_d = ge.plasma_skin_depth(n_p * 1e-6)
 
-    q_new, _ = inverse_deposit_3d_distribution(
-        bunch.xi, bunch.x, bunch.y,
-        xi_fld[0], r_fld[0],
-        n_xi, n_r, dxi, dr,
-        qb_var_current,
-        p_shape=p_shape,
+#    q_new, _ = inverse_deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y,
+#        xi_fld[0], r_fld[0],
+#        n_xi, n_r, dxi, dr,
+#        qb_var_current,
+#        p_shape=p_shape,
+#        use_ruyten=True,
+#    )
+#
+#    count_grid = np.zeros_like(q_bunch)
+#    ones = np.ones_like(bunch.q)
+#
+#    deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y,
+#        ones,
+#        xi_fld[0],
+#        r_fld[0],
+#        n_xi,
+#        n_r,
+#        dxi,
+#        dr,
+#        count_grid,
+#        p_shape=p_shape,
+#        use_ruyten=True,
+#    )
+#
+#    count_p, _ = inverse_deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y,
+#        xi_fld[0], r_fld[0],
+#        n_xi, n_r, dxi, dr,
+#        count_grid,
+#        p_shape=p_shape,
+#        use_ruyten=True,
+#    )
+
+
+
+    q_inv, info = inverse_deposit_fast(
+        bunch.xi, bunch.x, bunch.y, xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr, qb_var_current,
         use_ruyten=True,
+        r_min_deposit=0.0,
+        sign_mode="preserve_sign_of_init",   # or "preserve_sign_of_init"
+        n_iter=30,
+        alpha=2.0,
     )
 
-    count_grid = np.zeros_like(q_bunch)
-    ones = np.ones_like(bunch.q)
 
-    deposit_3d_distribution(
-        bunch.xi, bunch.x, bunch.y,
-        ones,
-        xi_fld[0],
-        r_fld[0],
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        count_grid,
-        p_shape=p_shape,
-        use_ruyten=True,
-    )
+    s_d = ct.c / np.sqrt(ct.e**2 * n_p / (ct.m_e * ct.epsilon_0))
+    
+    k = 1.0 / (2 * np.pi * ct.e * dr * dxi * s_d * n_p)
+    q_normalized = q_inv / k
 
-    count_p, _ = inverse_deposit_3d_distribution(
-        bunch.xi, bunch.x, bunch.y,
-        xi_fld[0], r_fld[0],
-        n_xi, n_r, dxi, dr,
-        count_grid,
-        p_shape=p_shape,
-        use_ruyten=True,
-    )
-
-    kfac = 1.0 / (2 * np.pi * ct.e * dr * dxi * s_d * n_p)
-    q_est = q_new / kfac
-
-    eps = 1e-30
-    w_est = np.abs(q_est / bunch.q_species) / np.maximum(count_p, eps)
-    bunch.w = w_est
+    w_salame = q_normalized / bunch.q_species 
+    bunch.w = w_salame
 
     print([np.max(q_bunch), np.min(q_bunch)])
 

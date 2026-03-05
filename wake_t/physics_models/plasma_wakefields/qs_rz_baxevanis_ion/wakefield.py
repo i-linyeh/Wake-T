@@ -672,8 +672,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             print("bunch w/o grid or deposit outliers")
             #if self._initial_condition_done:
             if True:
-                #if not self._initial_condition_done:
-                if False:
+                if not self._initial_condition_done:
+                #if False:
                     np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
 
                 self._reset_bunch_arrays()
@@ -694,8 +694,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                         self.q_bunch,
                     )
 
-                #if not self._initial_condition_done:
-                if False:
+                if not self._initial_condition_done:
+                #if True:
                     np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
 
 

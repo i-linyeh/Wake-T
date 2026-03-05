@@ -17,6 +17,10 @@ import math
 import numpy as np
 
 from wake_t.utilities.numba import njit_serial, prange
+from wake_t.particles.deposition import deposit_3d_distribution
+
+
+
 
 
 @njit_serial()
@@ -303,3 +307,264 @@ def inverse_deposit_3d_distribution_cubic(
 
     return w_out, all_gathered
 
+
+
+
+
+
+
+
+
+@njit_serial
+def _build_ruyten_coef_cubic(nr, dr, dz):
+    ruyten_coef = np.zeros(nr + 1)
+    r_grid = (np.arange(nr) + 0.5) * dr  # cell-centered
+    cell_volume = np.pi * dz * ((r_grid + 0.5 * dr) ** 2 - (r_grid - 0.5 * dr) ** 2)
+    cell_volume_norm = cell_volume / (2 * np.pi * dr**2 * dz)
+    cell_number = np.arange(nr) + 1
+    ruyten_coef[1:] = (
+        6.0
+        / cell_number
+        * (np.cumsum(cell_volume_norm) - 0.5 * cell_number**2 - 0.125)
+    )
+    ruyten_coef[1] = 6.0 * (cell_volume_norm[0] - 0.5 - 239.0 / (15 * 2**7))
+    return ruyten_coef
+
+
+@njit_serial
+def _cubic_coeffs(u):
+    inv_6 = 1.0 / 6.0
+    v = 1.0 - u
+    sc0 = inv_6 * v**3
+    sc1 = inv_6 * (3.0 * u**3 - 6.0 * u**2 + 4.0)
+    sc2 = inv_6 * (3.0 * v**3 - 6.0 * v**2 + 4.0)
+    sc3 = inv_6 * u**3
+    return sc0, sc1, sc2, sc3
+
+
+@njit_serial(parallel=True)
+def precompute_stencil_cubic_ruyten(
+    z, x, y,
+    z_min, r_min, nz, nr, dz, dr,
+    use_ruyten, r_min_deposit,
+    nz_tot, nr_tot,
+):
+    """
+    Precompute for each particle:
+      - 16 flattened grid indices (row-major on [iz, ir])
+      - 16 corresponding shape coefficients
+
+    Indices refer to the full deposition array (including guard cells).
+    """
+    Np = z.shape[0]
+    idx = -np.ones((Np, 16), dtype=np.int64)
+    coef = np.zeros((Np, 16), dtype=np.float64)
+    active = np.zeros(Np, dtype=np.bool_)
+
+    z_max = z_min + (nz - 1) * dz
+    r_max = nr * dr
+
+    ruyten_coef = np.zeros(1)
+    if use_ruyten:
+        ruyten_coef = _build_ruyten_coef_cubic(nr, dr, dz)
+
+    for i in prange(Np):
+        zi = z[i]
+        ri = math.sqrt(x[i]*x[i] + y[i]*y[i])
+
+        if not (zi >= z_min and zi <= z_max and ri >= r_min_deposit and ri <= r_max):
+            continue
+
+        z_cell = (zi - z_min) / dz
+        r_cell = (ri - r_min) / dr
+
+        # --- Wake-T cubic indexing convention ---
+        iz0 = int(math.ceil(z_cell))
+        ir0 = min(int(math.ceil(r_cell)), nr + 2)
+
+        uz = z_cell - math.ceil(z_cell) + 1.0
+        ur = r_cell - math.ceil(r_cell) + 1.0
+
+        zsc0, zsc1, zsc2, zsc3 = _cubic_coeffs(uz)
+        rsc0, rsc1, rsc2, rsc3 = _cubic_coeffs(ur)
+
+        # Ruyten correction (exactly as deposit)
+        if use_ruyten:
+            ir = min(int(math.ceil(r_cell)), nr)
+            rc = ruyten_coef[ir]
+            vr = 1.0 - ur
+            rsc1 += rc * vr * ur
+            rsc2 -= rc * vr * ur
+
+        # Axis folding (exactly as deposit)
+        if r_cell <= 0.0:
+            rsc3 += rsc0
+            rsc2 += rsc1
+            rsc0 = 0.0
+            rsc1 = 0.0
+        elif r_cell <= 1.0:
+            rsc1 += rsc0
+            rsc0 = 0.0
+
+        # z-boundary folding (exactly as deposit)
+        if z_cell <= 0.0:
+            zsc3 += zsc0
+            zsc2 += zsc1
+            zsc0 = 0.0
+            zsc1 = 0.0
+        elif z_cell <= 1.0:
+            zsc1 += zsc0
+            zsc0 = 0.0
+        elif z_cell > nz - 1:
+            zsc0 += zsc3
+            zsc1 += zsc2
+            zsc2 = 0.0
+            zsc3 = 0.0
+        elif z_cell > nz - 2:
+            zsc2 += zsc3
+            zsc3 = 0.0
+
+        zc = (zsc0, zsc1, zsc2, zsc3)
+        rc = (rsc0, rsc1, rsc2, rsc3)
+
+        # Store 16 entries (flattened index = iz*nr_tot + ir)
+        k = 0
+        ok = True
+        for a in range(4):
+            iz = iz0 + a
+            if iz < 0 or iz >= nz_tot:
+                ok = False
+                break
+            for b in range(4):
+                ir = ir0 + b
+                if ir < 0 or ir >= nr_tot:
+                    ok = False
+                    break
+                idx[i, k] = iz * nr_tot + ir
+                coef[i, k] = zc[a] * rc[b]
+                k += 1
+            if not ok:
+                break
+
+        if ok:
+            active[i] = True
+
+    return idx, coef, active
+
+
+@njit_serial(parallel=True)
+def gather_from_grid(idx, coef, active, grid_flat):
+    """Compute (A^T grid_flat)_i using the precomputed stencil."""
+    Np = idx.shape[0]
+    out = np.zeros(Np, dtype=np.float64)
+    for i in prange(Np):
+        if not active[i]:
+            continue
+        s = 0.0
+        for k in range(16):
+            s += coef[i, k] * grid_flat[idx[i, k]]
+        out[i] = s
+    return out
+
+
+def inverse_deposit_fast(
+    z, x, y,
+    z_min, r_min, nz, nr, dz, dr,
+    rho0,
+    *,
+    use_ruyten=True,
+    r_min_deposit=0.0,
+    sign_mode="preserve_sign_of_init",   # "nonnegative" or "preserve_sign_of_init" or "none"
+    n_iter=20,
+    alpha=1.0,
+    eps=1e-30,
+):
+    """
+    Fast approximate inverse for cubic+Ruyten using:
+      - forward: deposit_3d_distribution (Wake-T)
+      - adjoint: gather using precomputed cubic+Ruyten stencils
+      - normalization: count_p trick
+
+    Returns w_inv, info
+    """
+    z = np.asarray(z, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    rho0 = np.asarray(rho0, dtype=np.float64)
+
+    nz_tot, nr_tot = rho0.shape
+    assert nz_tot == nz + 4 and nr_tot == nr + 4, "rho0 must be (nz+4, nr+4)"
+
+    # Precompute stencils once
+    idx, coef, active = precompute_stencil_cubic_ruyten(
+        z, x, y, z_min, r_min, nz, nr, dz, dr,
+        use_ruyten, r_min_deposit, nz_tot, nr_tot
+    )
+
+    # count_p = A * 1
+    count_p = np.zeros_like(rho0)
+    ones = np.ones_like(z)
+    deposit_3d_distribution(
+        z, x, y, ones,
+        z_min, r_min, nz, nr, dz, dr,
+        count_p,
+        p_shape="cubic",
+        use_ruyten=use_ruyten,
+        r_min_deposit=r_min_deposit,
+    )
+
+    # Initial guess: backprojection of normalized rho0
+    rho0_flat = rho0.reshape(-1)
+    count_flat = count_p.reshape(-1)
+    norm_grid = rho0_flat / (count_flat + eps)
+    w = gather_from_grid(idx, coef, active, norm_grid)
+
+    # Set sign constraint baseline if needed
+    if sign_mode == "nonnegative":
+        w = np.maximum(w, 0.0)
+    elif sign_mode == "preserve_sign_of_init":
+        sgn0 = np.sign(w)
+        sgn0[sgn0 == 0] = 1.0
+    else:
+        sgn0 = None
+
+    # Work buffers
+    rho = np.zeros_like(rho0)
+    res = np.zeros_like(rho0)
+
+    for it in range(n_iter):
+        rho.fill(0.0)
+        deposit_3d_distribution(
+            z, x, y, w,
+            z_min, r_min, nz, nr, dz, dr,
+            rho,
+            p_shape="cubic",
+            use_ruyten=use_ruyten,
+            r_min_deposit=r_min_deposit,
+        )
+
+        # residual on grid
+        res[:] = rho0 - rho
+        res_flat = res.reshape(-1)
+
+        # normalized residual (count_p trick)
+        grad_grid = res_flat / (count_flat + eps)
+
+        # approximate gradient step using adjoint gather
+        g = gather_from_grid(idx, coef, active, grad_grid)
+        w = w + alpha * g
+
+        # project back to sign constraint
+        if sign_mode == "nonnegative":
+            w = np.maximum(w, 0.0)
+        elif sign_mode == "preserve_sign_of_init":
+            w = np.abs(w) * sgn0
+
+    info = {
+        "n_iter": int(n_iter),
+        "alpha": float(alpha),
+        "use_ruyten": bool(use_ruyten),
+        "r_min_deposit": float(r_min_deposit),
+        "active_frac": float(np.mean(active)),
+    }
+    return w, info
