@@ -432,7 +432,10 @@ def beamloading_initial_condition(
 
 
     np.savez('q_bunch_current.npz', q_bunch=q_bunch) 
-    
+
+
+
+
     # sanitize chi to avoid NaNs/Infs killing laser envelope 
     chi_int = chi[2:-2, 2:-2]
     if not np.all(np.isfinite(chi_int)):
@@ -476,6 +479,13 @@ def beamloading_initial_condition(
 #        use_ruyten=True,
 #    )
 
+    print(np.sum(qb_var_current))
+
+
+    print(qb_var_current)
+
+    #dep = np.zeros((n_xi + 4, n_r + 4))
+    #dep[2:-2, 2:-2] = qb_var_current
 
 
     q_inv, info = inverse_deposit_fast(
@@ -486,6 +496,9 @@ def beamloading_initial_condition(
         n_iter=30,
         alpha=2.0,
     )
+
+
+    print(np.sum(q_inv))
 
 
     s_d = ct.c / np.sqrt(ct.e**2 * n_p / (ct.m_e * ct.epsilon_0))

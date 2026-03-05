@@ -709,116 +709,116 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 #This block of code is to test the inverse_deposit_3d distribution function
                 #This block of code is to test the inverse_deposit_3d distribution function
                 #if not self._initial_condition_done:
-                if False:
-                    #data = np.load('bunch_after_SALAME.npz')
-                    #bunches[0].w = data['w']
-                    print(bunches[0].w)
-                    
-                    self.b_t_bunch[:] = 0.0
-                    self.q_bunch[:] = 0.0
-                    for bunch in bunches_without_grid:
-                        deposit_bunch_charge(
-                            bunch.x,
-                            bunch.y,
-                            bunch.xi,
-                            bunch.q,
-                            self.n_p,
-                            self.n_r,
-                            self.n_xi,
-                            self.r_fld,
-                            self.xi_fld,
-                            self.dr,
-                            self.dxi,
-                            self.p_shape,
-                            self.q_bunch,
-                        )
-
-
-
-                    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-
-
-
-                    q_new, _ = inverse_deposit_3d_distribution(
-                        bunches[0].xi, bunches[0].x, bunches[0].y,
-                        self.xi_fld[0], self.r_fld[0],
-                        self.n_xi, self.n_r, self.dxi, self.dr,
-                        self.q_bunch,
-                        p_shape=self.p_shape,
-                        use_ruyten=True,
-                    )
-                    
-                    
-                    # 0) Make a grid that counts macroparticles (smoothed)
-                    count_grid = np.zeros_like(self.q_bunch)
-                    
-                    ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
-                    
-                    # Deposit ones (NO k here; use deposit_3d_distribution directly)
-                    deposit_3d_distribution(
-                        bunches[0].xi, bunches[0].x, bunches[0].y,
-                        ones,
-                        self.xi_fld[0],
-                        self.r_fld[0],
-                        self.n_xi,
-                        self.n_r,
-                        self.dxi,
-                        self.dr,
-                        count_grid,
-                        p_shape=self.p_shape,
-                        use_ruyten=True,
-                    )
-
-                    count_p, _ = inverse_deposit_3d_distribution(
-                        bunches[0].xi, bunches[0].x, bunches[0].y,
-                        self.xi_fld[0], self.r_fld[0],
-                        self.n_xi, self.n_r, self.dxi, self.dr,
-                        count_grid,
-                        p_shape=self.p_shape,
-                        use_ruyten=True,
-                    )
-
-
-
-                    k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
-                    
-                    # convert back to charge-like quantity
-                    q_est = q_new / k
-
-                    eps = 1e-30
-                    w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
-
-                    #print(np.abs(q_est / bunches[0].q_species))
-                    #print(count_p)
-
-                    bunches[0].w =  w_est
-                    print(w_est)
-
-
-
-                    #self._reset_bunch_arrays()
-                    self.b_t_bunch[:] = 0.0
-                    self.q_bunch[:] = 0.0
-                    for bunch in bunches_without_grid:
-                        deposit_bunch_charge(
-                            bunch.x,
-                            bunch.y,
-                            bunch.xi,
-                            bunch.q,
-                            self.n_p,
-                            self.n_r,
-                            self.n_xi,
-                            self.r_fld,
-                            self.xi_fld,
-                            self.dr,
-                            self.dxi,
-                            self.p_shape,
-                            self.q_bunch,
-                        )
-
-                    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
-
-
+#                if False:
+#                    #data = np.load('bunch_after_SALAME.npz')
+#                    #bunches[0].w = data['w']
+#                    print(bunches[0].w)
+#                    
+#                    self.b_t_bunch[:] = 0.0
+#                    self.q_bunch[:] = 0.0
+#                    for bunch in bunches_without_grid:
+#                        deposit_bunch_charge(
+#                            bunch.x,
+#                            bunch.y,
+#                            bunch.xi,
+#                            bunch.q,
+#                            self.n_p,
+#                            self.n_r,
+#                            self.n_xi,
+#                            self.r_fld,
+#                            self.xi_fld,
+#                            self.dr,
+#                            self.dxi,
+#                            self.p_shape,
+#                            self.q_bunch,
+#                        )
+#
+#
+#
+#                    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
+#
+#
+#
+#                    q_new, _ = inverse_deposit_3d_distribution(
+#                        bunches[0].xi, bunches[0].x, bunches[0].y,
+#                        self.xi_fld[0], self.r_fld[0],
+#                        self.n_xi, self.n_r, self.dxi, self.dr,
+#                        self.q_bunch,
+#                        p_shape=self.p_shape,
+#                        use_ruyten=True,
+#                    )
+#                    
+#                    
+#                    # 0) Make a grid that counts macroparticles (smoothed)
+#                    count_grid = np.zeros_like(self.q_bunch)
+#                    
+#                    ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
+#                    
+#                    # Deposit ones (NO k here; use deposit_3d_distribution directly)
+#                    deposit_3d_distribution(
+#                        bunches[0].xi, bunches[0].x, bunches[0].y,
+#                        ones,
+#                        self.xi_fld[0],
+#                        self.r_fld[0],
+#                        self.n_xi,
+#                        self.n_r,
+#                        self.dxi,
+#                        self.dr,
+#                        count_grid,
+#                        p_shape=self.p_shape,
+#                        use_ruyten=True,
+#                    )
+#
+#                    count_p, _ = inverse_deposit_3d_distribution(
+#                        bunches[0].xi, bunches[0].x, bunches[0].y,
+#                        self.xi_fld[0], self.r_fld[0],
+#                        self.n_xi, self.n_r, self.dxi, self.dr,
+#                        count_grid,
+#                        p_shape=self.p_shape,
+#                        use_ruyten=True,
+#                    )
+#
+#
+#
+#                    k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
+#                    
+#                    # convert back to charge-like quantity
+#                    q_est = q_new / k
+#
+#                    eps = 1e-30
+#                    w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
+#
+#                    #print(np.abs(q_est / bunches[0].q_species))
+#                    #print(count_p)
+#
+#                    bunches[0].w =  w_est
+#                    print(w_est)
+#
+#
+#
+#                    #self._reset_bunch_arrays()
+#                    self.b_t_bunch[:] = 0.0
+#                    self.q_bunch[:] = 0.0
+#                    for bunch in bunches_without_grid:
+#                        deposit_bunch_charge(
+#                            bunch.x,
+#                            bunch.y,
+#                            bunch.xi,
+#                            bunch.q,
+#                            self.n_p,
+#                            self.n_r,
+#                            self.n_xi,
+#                            self.r_fld,
+#                            self.xi_fld,
+#                            self.dr,
+#                            self.dxi,
+#                            self.p_shape,
+#                            self.q_bunch,
+#                        )
+#
+#                    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
+#
+#
 
 
 
