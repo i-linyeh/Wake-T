@@ -14,7 +14,7 @@ from .solver import (
     commit_cache_one_slice,
 )
 
-from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast, inverse_deposit_lsqr
 from wake_t.particles.deposition import deposit_3d_distribution
 
 
@@ -482,24 +482,129 @@ def beamloading_initial_condition(
     print(np.sum(qb_var_current))
 
 
-    print(qb_var_current)
+    #print(qb_var_current)
 
     #dep = np.zeros((n_xi + 4, n_r + 4))
     #dep[2:-2, 2:-2] = qb_var_current
 
 
-    q_inv, info = inverse_deposit_fast(
-        bunch.xi, bunch.x, bunch.y, xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr, qb_var_current,
+    qb_var_target = np.zeros_like(qb_var_current)
+    qb_var_target[2:-2, 2:-2] = qb_var_current[2:-2, 2:-2]
+
+    print(np.sum(qb_var_target))
+
+
+
+    count_grid = np.zeros_like(qb_var_current)
+    ones = np.ones_like(bunch.xi)
+    
+    deposit_3d_distribution(
+        bunch.xi, bunch.x, bunch.y,
+        ones,
+        xi_fld[0], r_fld[0],
+        n_xi, n_r, dxi, dr,
+        count_grid,
+        p_shape="cubic",
         use_ruyten=True,
         r_min_deposit=0.0,
-        sign_mode="preserve_sign_of_init",   # or "preserve_sign_of_init"
-        n_iter=30,
-        alpha=2.0,
     )
+    
+    mask = count_grid > 0
+    print("sum qb_var_current total      =", np.sum(qb_var_current))
+    print("sum qb_var_current where mask =", np.sum(qb_var_current[mask]))
+    print("sum qb_var_current off-support =", np.sum(qb_var_current[~mask]))
+    print("active support frac (grid)    =", np.mean(mask))
 
 
-    print(np.sum(q_inv))
 
+
+#    q_inv, info = inverse_deposit_fast(
+#        bunch.xi, bunch.x, bunch.y, xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr, qb_var_target,
+#        use_ruyten=True,
+#        r_min_deposit=0.0,
+#        sign_mode="preserve_sign_of_init",   # or "preserve_sign_of_init"
+#        n_iter=500,
+#        alpha=0.05,
+#    )
+#
+#
+#    print(np.sum(q_inv))
+#
+#
+#
+#    rho1 = np.zeros_like(qb_var_current)
+#    deposit_3d_distribution(
+#        bunch.xi, bunch.x, bunch.y,
+#        q_inv,
+#        xi_fld[0], r_fld[0],
+#        n_xi, n_r,
+#        dxi, dr,
+#        rho1,
+#        p_shape="cubic",
+#        use_ruyten=True,
+#        r_min_deposit=0.0,
+#    )
+#    
+#    absdiff = np.max(np.abs(rho1 - qb_var_current))
+#    reldiff = absdiff / (np.max(np.abs(qb_var_current)) + 1e-30)
+#    print("inverse redeposit max abs diff:", absdiff)
+#    print("inverse redeposit rel diff    :", reldiff)
+#    print("sum grid:", np.sum(qb_var_current), "sum inv:", np.sum(q_inv))
+
+
+
+
+
+
+
+    # 1) Solve inverse by LSQR (masked)
+    fixed_sign = -1  # your qb_var_current sum is negative (electrons)
+    q_inv, info, count_grid, mask = inverse_deposit_lsqr(
+        bunch.xi, bunch.x, bunch.y,
+        xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+        qb_var_current,
+        use_ruyten=True,
+        r_min_deposit=0.0,
+        damp=1e-14,       # small damping helps conditioning; try 0, 1e-14, 1e-12
+        atol=1e-12,
+        btol=1e-12,
+        iter_lim=1000,
+        enforce_total=True,
+        fixed_sign=fixed_sign,
+    )
+    
+    # 2) Check redeposit diff
+    rho1 = np.zeros_like(qb_var_current)
+    deposit_3d_distribution(
+        bunch.xi, bunch.x, bunch.y,
+        q_inv,
+        xi_fld[0], r_fld[0],
+        n_xi, n_r, dxi, dr,
+        rho1,
+        p_shape="cubic",
+        use_ruyten=True,
+        r_min_deposit=0.0,
+    )
+    absdiff = np.max(np.abs(rho1 - qb_var_current))
+    reldiff = absdiff / (np.max(np.abs(qb_var_current)) + 1e-30)
+    print("LSQR info:", info)
+    print("inverse redeposit max abs diff:", absdiff)
+    print("inverse redeposit rel diff    :", reldiff)
+    print("sum grid:", np.sum(qb_var_current), "sum inv:", np.sum(q_inv))
+
+
+
+
+
+
+
+
+#
+#    target_sum = np.sum(qb_var_target)   # or qb_var_target.sum() (guards are zero)
+#    inv_sum = np.sum(q_inv)
+#    if inv_sum != 0.0:
+#        q_inv *= (target_sum / inv_sum)
+#
 
     s_d = ct.c / np.sqrt(ct.e**2 * n_p / (ct.m_e * ct.epsilon_0))
     

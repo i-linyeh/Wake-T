@@ -19,6 +19,7 @@ import numpy as np
 from wake_t.utilities.numba import njit_serial, prange
 from wake_t.particles.deposition import deposit_3d_distribution
 
+from scipy.sparse.linalg import LinearOperator, lsqr
 
 
 
@@ -520,13 +521,27 @@ def inverse_deposit_fast(
     w = gather_from_grid(idx, coef, active, norm_grid)
 
     # Set sign constraint baseline if needed
-    if sign_mode == "nonnegative":
+    #if sign_mode == "nonnegative":
+    #    w = np.maximum(w, 0.0)
+    #elif sign_mode == "preserve_sign_of_init":
+    #    sgn0 = np.sign(w)
+    #    sgn0[sgn0 == 0] = 1.0
+    #else:
+    #    sgn0 = None
+
+    grid_sign = np.sign(np.sum(rho0))
+    
+    # after each update step:
+    if sign_mode == "fixed_sign":
+        w = grid_sign * np.abs(w)
+    elif sign_mode == "nonnegative":
         w = np.maximum(w, 0.0)
     elif sign_mode == "preserve_sign_of_init":
         sgn0 = np.sign(w)
         sgn0[sgn0 == 0] = 1.0
     else:
         sgn0 = None
+
 
     # Work buffers
     rho = np.zeros_like(rho0)
@@ -568,3 +583,124 @@ def inverse_deposit_fast(
         "active_frac": float(np.mean(active)),
     }
     return w, info
+
+
+
+
+
+
+def inverse_deposit_lsqr(
+    z, x, y,
+    z_min, r_min, nz, nr, dz, dr,
+    rho0,
+    *,
+    use_ruyten=True,
+    r_min_deposit=0.0,
+    mask=None,                 # if None, uses count_grid>0
+    damp=0.0,                  # Tikhonov damping for stability
+    atol=1e-12,
+    btol=1e-12,
+    iter_lim=200,
+    enforce_total=True,
+    fixed_sign=None,           # None, or -1/+1
+):
+    """
+    Solve min ||A w - rho0||_2 using LSQR without building A.
+
+    A w computed by deposit_3d_distribution.
+    A^T u computed by gather_from_grid (using precomputed stencils).
+
+    Optionally restrict to rows where count_grid>0 (mask) for better conditioning.
+    """
+
+    z = np.asarray(z, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    rho0 = np.asarray(rho0, dtype=np.float64)
+
+    nz_tot, nr_tot = rho0.shape
+    assert nz_tot == nz + 4 and nr_tot == nr + 4, "rho0 must be (nz+4, nr+4)"
+
+    # Precompute particle stencils once (cubic+Ruyten+folding consistent with deposit)
+    idx, coef, active = precompute_stencil_cubic_ruyten(
+        z, x, y, z_min, r_min, nz, nr, dz, dr,
+        use_ruyten, r_min_deposit, nz_tot, nr_tot
+    )
+
+    # Build count_grid once (for mask and diagnostics)
+    count_grid = np.zeros_like(rho0)
+    ones = np.ones_like(z)
+    deposit_3d_distribution(
+        z, x, y, ones,
+        z_min, r_min, nz, nr, dz, dr,
+        count_grid,
+        p_shape="cubic",
+        use_ruyten=use_ruyten,
+        r_min_deposit=r_min_deposit,
+    )
+
+    if mask is None:
+        mask = count_grid > 0
+
+    # Compress b to masked rows
+    b_full = rho0.reshape(-1)
+    mask_flat = mask.reshape(-1)
+    b = b_full[mask_flat]
+    m = b.size
+    n = z.size
+
+    # Work buffers to avoid reallocations
+    rho_tmp = np.zeros_like(rho0)
+    u_full = np.zeros_like(b_full)  # full-grid vector for rmatvec scatter
+
+    def matvec(w):
+        # y = A w, but return only masked entries
+        rho_tmp.fill(0.0)
+        deposit_3d_distribution(
+            z, x, y, w,
+            z_min, r_min, nz, nr, dz, dr,
+            rho_tmp,
+            p_shape="cubic",
+            use_ruyten=use_ruyten,
+            r_min_deposit=r_min_deposit,
+        )
+        y_full = rho_tmp.reshape(-1)
+        return y_full[mask_flat]
+
+    def rmatvec(u):
+        # x = A^T u, where u is masked-grid vector
+        u_full.fill(0.0)
+        u_full[mask_flat] = u
+        return gather_from_grid(idx, coef, active, u_full)
+
+    Aop = LinearOperator(shape=(m, n), matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
+
+    sol = lsqr(Aop, b, damp=damp, atol=atol, btol=btol, iter_lim=iter_lim)
+    w = sol[0]
+
+    # Optional fixed-sign projection (do AFTER LSQR; projecting during solve hurts residual)
+    if fixed_sign in (-1, 1):
+        w = fixed_sign * np.abs(w)
+
+    # Enforce total charge exactly (recommended in your SALAME workflow)
+    if enforce_total:
+        target_sum = float(np.sum(rho0))  # guards are zero; OK
+        inv_sum = float(np.sum(w))
+        if inv_sum != 0.0:
+            w *= (target_sum / inv_sum)
+
+    info = {
+        "istop": int(sol[1]),
+        "itn": int(sol[2]),
+        "r1norm": float(sol[3]),
+        "r2norm": float(sol[4]),
+        "anorm": float(sol[5]),
+        "acond": float(sol[6]),
+        "arnorm": float(sol[7]),
+        "xnorm": float(sol[8]),
+        "active_particle_frac": float(np.mean(active)),
+        "active_grid_frac": float(np.mean(mask)),
+        "mask_rows": int(m),
+        "n_part": int(n),
+    }
+    return w, info, count_grid, mask
