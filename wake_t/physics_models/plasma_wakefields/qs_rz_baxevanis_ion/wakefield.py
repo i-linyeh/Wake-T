@@ -471,6 +471,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+
                 )
         
             # 3) IMPORTANT: after bunch.w changed, its bunch.q changes too
