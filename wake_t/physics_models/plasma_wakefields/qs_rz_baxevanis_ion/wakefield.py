@@ -496,7 +496,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Calculate bunch sources and create adaptive grids if needed.
         s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
         deposit_outliers_on_base_grid = False
-        if self.use_adaptive_grids:
+        if self.use_adaptive_grids and (not self.use_SALAME):
             store_plasma_history = True
             # Get radial grid resolution.
             if isinstance(self.adaptive_grid_nr, list):
@@ -668,31 +668,34 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         else:
             bunches_without_grid = bunches
         # If not using adaptive grids, add all sources to the same array.
-        if bunches_without_grid or deposit_outliers_on_base_grid:
+        if bunches_without_grid or deposit_outliers_on_base_grid or (not self._initial_condition_done):
             print("bunch w/o grid or deposit outliers")
             #if self._initial_condition_done:
             if True:
                 if not self._initial_condition_done:
                 #if False:
                     np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-
-                self._reset_bunch_arrays()
-                for bunch in bunches_without_grid:
-                    deposit_bunch_charge(
-                        bunch.x,
-                        bunch.y,
-                        bunch.xi,
-                        bunch.q,
-                        self.n_p,
-                        self.n_r,
-                        self.n_xi,
-                        self.r_fld,
-                        self.xi_fld,
-                        self.dr,
-                        self.dxi,
-                        self.p_shape,
-                        self.q_bunch,
-                    )
+                
+                if not self._initial_condition_done:
+                    self.b_t_bunch[:] = 0.0
+                else:
+                    self._reset_bunch_arrays()
+                    for bunch in bunches_without_grid:
+                        deposit_bunch_charge(
+                            bunch.x,
+                            bunch.y,
+                            bunch.xi,
+                            bunch.q,
+                            self.n_p,
+                            self.n_r,
+                            self.n_xi,
+                            self.r_fld,
+                            self.xi_fld,
+                            self.dr,
+                            self.dxi,
+                            self.p_shape,
+                            self.q_bunch,
+                        )
 
                 if not self._initial_condition_done:
                 #if True:
