@@ -20,7 +20,7 @@ from wake_t.utilities.numba import njit_serial, prange
 from wake_t.particles.deposition import deposit_3d_distribution
 
 from scipy.sparse.linalg import LinearOperator, lsqr
-
+from numpy.linalg import lstsq
 
 
 
@@ -704,3 +704,58 @@ def inverse_deposit_lsqr(
         "n_part": int(n),
     }
     return w, info, count_grid, mask
+
+
+
+
+
+def inverse_line_deposition_exact(
+    xi, x, y,
+    xi_min, r_min,
+    n_xi, n_r, dxi, dr,
+    lambda_target,
+    *,
+    p_shape="cubic",
+    use_ruyten=True,
+    r_min_deposit=0.0,
+):
+    """
+    Invert only the line charge lambda(xi), not the full 2D grid.
+    """
+
+    xi = np.asarray(xi, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    lambda_target = np.asarray(lambda_target, dtype=np.float64)
+
+    Np = xi.size
+    A = np.zeros((n_xi, Np), dtype=np.float64)
+
+    tmp = np.zeros((n_xi + 4, n_r + 4), dtype=np.float64)
+    one = np.ones(1, dtype=np.float64)
+
+    for i in range(Np):
+        tmp.fill(0.0)
+        deposit_3d_distribution(
+            xi[i:i+1], x[i:i+1], y[i:i+1],
+            one,
+            xi_min, r_min,
+            n_xi, n_r,
+            dxi, dr,
+            tmp,
+            p_shape=p_shape,
+            use_ruyten=use_ruyten,
+            r_min_deposit=r_min_deposit,
+        )
+        # sum over r interior only
+        A[:, i] = np.sum(tmp[2:-2, 2:-2], axis=1)
+
+    q_inv, *_ = lstsq(A, lambda_target, rcond=None)
+
+    # enforce exact total
+    s_tgt = np.sum(lambda_target)
+    s_inv = np.sum(q_inv)
+    if s_inv != 0.0:
+        q_inv *= s_tgt / s_inv
+
+    return q_inv
