@@ -428,7 +428,7 @@ def beamloading_initial_condition(
     q_bunch[:, :] = qb_total_final
 
 
-
+    qb_var_current_line=q_bunch_line_from_qbunch(qb_var_current)
 
 
     np.savez('q_bunch_current.npz', q_bunch=q_bunch) 
@@ -754,6 +754,13 @@ def beamloading_initial_condition(
     print("inverse redeposit max abs diff:", absdiff)
     print("inverse redeposit rel diff    :", reldiff)
     print("sum grid:", np.sum(qb_var_current), "sum inv:", np.sum(q_inv))
+
+    rho1_line=q_bunch_line_from_qbunch(rho1)
+    absdiff_line = np.max(np.abs(rho1_line - qb_var_current_line))
+    reldiff_line = absdiff_line / (np.max(np.abs(qb_var_current_line)) + 1e-30)
+    #print("LSQR info:", info)
+    print("inverse redeposit line  max abs diff:", absdiff_line)
+    print("inverse redeposit lien rel diff    :", reldiff_line)
 
 
 
