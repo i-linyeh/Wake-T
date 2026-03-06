@@ -14,7 +14,7 @@ from .solver import (
     commit_cache_one_slice,
 )
 
-from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast, inverse_deposit_lsqr, inverse_line_deposition_exact
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast, inverse_deposit_lsqr, inverse_line_deposition_exact, inverse_line_deposition_negative_sparse
 from wake_t.particles.deposition import deposit_3d_distribution
 
 
@@ -353,8 +353,8 @@ def beamloading_initial_condition(
         print(f"{Ez_min_km1=}")
 
         while np.abs(Ez_max_km1) > np.abs(Ez_target):
-            print(f"{g_max=}")
             g_max *= 5.0
+            print(f"{g_max=}")
             qb_max = set_slice_line_charge_var(qb_var_current, k, g_max)
             Ez_max_km1 = solve_Ez_weighted_km1_cached(qb_max, pp_cache, k - 1)
             print(f"{Ez_max_km1=}")
@@ -389,6 +389,7 @@ def beamloading_initial_condition(
             Ez_try_km1 = solve_Ez_weighted_km1_cached(qb_try, pp_cache, k - 1)
 
             print(f"{Ez_try_km1=}")
+            print(f"{g_new=}")
 
             if np.abs(Ez_try_km1) > np.abs(Ez_target):
                 g_min, Ez_min_km1 = g_new, Ez_try_km1
@@ -624,7 +625,10 @@ def beamloading_initial_condition(
 
 
     lambda_target = np.sum(qb_var_current[2:-2, 2:-2], axis=1)
-    
+   
+    print("lambda_target min/max:", lambda_target.min(), lambda_target.max())
+
+
     q_inv = inverse_line_deposition_exact(
         bunch.xi, bunch.x, bunch.y,
         xi_fld[0], r_fld[0],
@@ -634,6 +638,22 @@ def beamloading_initial_condition(
         use_ruyten=True,
         r_min_deposit=0.0,
     )
+
+
+
+    #q_inv, info = inverse_line_deposition_negative_sparse(
+    #    bunch.xi, bunch.x, bunch.y,
+    #    xi_fld[0], r_fld[0],
+    #    n_xi, n_r, dxi, dr,
+    #    lambda_target,
+    #    p_shape=p_shape,
+    #    use_ruyten=True,
+    #    r_min_deposit=0.0,
+    #    tol=1e-12,
+    #    max_iter=200,
+    #    clip_target_positive=False,   # set True only if needed
+    #)
+    #
 
 
 
