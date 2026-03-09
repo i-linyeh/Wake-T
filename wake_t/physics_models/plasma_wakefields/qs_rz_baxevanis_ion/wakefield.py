@@ -676,6 +676,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 #if False:
                     np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
 
+
+                print([self.n_xi,self.n_r])
+                print(self.r_fld)
                 self._reset_bunch_arrays()
                 for bunch in bunches_without_grid:
                     deposit_bunch_charge(
@@ -697,7 +700,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 if not self._initial_condition_done:
                 #if True:
                     np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
-
 
 
                 #data = np.load('q_bunch_after_SALAME.npz')

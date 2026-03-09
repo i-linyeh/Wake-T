@@ -14,7 +14,7 @@ from .solver import (
     commit_cache_one_slice,
 )
 
-from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast, inverse_deposit_lsqr, inverse_line_deposition_exact, inverse_line_deposition_negative_sparse
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution, inverse_deposit_fast, inverse_deposit_lsqr, inverse_line_deposition_exact
 from wake_t.particles.deposition import deposit_3d_distribution
 
 
