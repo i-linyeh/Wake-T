@@ -613,11 +613,11 @@ def beamloading_initial_condition(
     eps = 1e-30
     q_inv = q_gathered / np.maximum(count_p, eps)
     
-    # Enforce total charge exactly
-    target_sum = np.sum(qb_var_current)
-    inv_sum = np.sum(q_inv)
-    if inv_sum != 0.0:
-        q_inv *= (target_sum / inv_sum)
+    ## Enforce total charge exactly
+    #target_sum = np.sum(qb_var_current)
+    #inv_sum = np.sum(q_inv)
+    #if inv_sum != 0.0:
+    #    q_inv *= (target_sum / inv_sum)
 
 
 

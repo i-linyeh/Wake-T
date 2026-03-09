@@ -834,9 +834,9 @@ def calculate_wakefields_ez_km1_from_cache(
 
     psi_km1 = psi[2 + k-1, :]      # includes guard r
 
-    print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
-    print("psi(km1)   axis/mean/min/max:", psi_km1[0], psi_km1.mean(), psi_km1.min(), psi_km1.max())
-    print("psi(km2)   axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
+    #print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
+    #print("psi(km1)   axis/mean/min/max:", psi_km1[0], psi_km1.mean(), psi_km1.min(), psi_km1.max())
+    #print("psi(km2)   axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
 
     return Ez_r_km1
 
