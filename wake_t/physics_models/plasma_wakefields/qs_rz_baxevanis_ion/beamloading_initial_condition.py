@@ -302,7 +302,7 @@ def beamloading_initial_condition(
 
 
 
-    calculate_bunch_source(qb_current-qb_var_current, n_r, n_xi, b_t_bunch)
+    calculate_bunch_source(qb_fixed, n_r, n_xi, b_t_bunch)
     
     # overwrite base-grid slot (index 0)
     bunch_source_arrays[0] = b_t_bunch
