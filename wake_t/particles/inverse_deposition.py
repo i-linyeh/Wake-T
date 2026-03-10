@@ -754,10 +754,10 @@ def inverse_line_deposition_exact(
     q_inv, *_ = lstsq(A, lambda_target, rcond=None)
 
     # enforce exact total
-    s_tgt = np.sum(lambda_target)
-    s_inv = np.sum(q_inv)
-    if s_inv != 0.0:
-        q_inv *= s_tgt / s_inv
+    #s_tgt = np.sum(lambda_target)
+    #s_inv = np.sum(q_inv)
+    #if s_inv != 0.0:
+    #    q_inv *= s_tgt / s_inv
 
     return q_inv
 
