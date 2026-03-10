@@ -302,6 +302,10 @@ def beamloading_initial_condition(
 
 
 
+    calculate_bunch_source(qb_current-qb_var_current, n_r, n_xi, b_t_bunch)
+    
+    # overwrite base-grid slot (index 0)
+    bunch_source_arrays[0] = b_t_bunch
 
 
     # Get Ez_target at k_tail. We build plasma paticle cache to k_tail+2 slice. Then solve_Ez_weighted_km1_cached evolve k_tail+1, k_tail, k_tail-1 to get Ez at k_tail 
