@@ -71,6 +71,10 @@ def beamloading_initial_condition(
       - It assumes q_bunch/b_t_bunch include guard cells (same convention as your code).
     """
 
+
+    print(f"{np.sum(bunch_source_arrays)=}")
+    print(f"{np.sum(b_t_bunch)=}")
+
     # --- keep your existing bunch_source init ---
     if len(bunch_source_arrays) == 0:
         bunch_source_arrays.append(b_t_bunch)
@@ -135,55 +139,55 @@ def beamloading_initial_condition(
         return out
     
     
-    def solve_with_qbunch(qb2d: np.ndarray):
-        """
-        Full wake solve with the current qbunch (same as the method version).
-        Updates fld_arrays in-place via calculate_wakefields(...).
-        Returns:
-          Ez_w : bunch-weighted <Ez>(xi)
-          g_line: line-charge proxy from q_bunch
-          pp    : plasma particle history/state returned by calculate_wakefields
-        """
-        # update q_bunch and b_t_bunch
-        q_bunch[:, :] = qb2d
-        calculate_bunch_source(q_bunch, n_r, n_xi, b_t_bunch)
-    
-        # overwrite base-grid slot (index 0)
-        bunch_source_arrays[0] = b_t_bunch
-    
-        calculate_rho = any("rho" in diag for diag in field_diags)
-    
-        pp = calculate_wakefields(
-            laser_a2,
-            r_max,
-            xi_min,
-            xi_max,
-            n_r,
-            n_xi,
-            ppc,
-            n_p,
-            r_max_plasma=r_max_plasma,
-            radial_density=radial_density,
-            p_shape=p_shape,
-            max_gamma=max_gamma,
-            plasma_pusher=plasma_pusher,
-            ion_motion=ion_motion,
-            ion_mass=ion_mass,
-            free_electrons_per_ion=free_electrons_per_ion,
-            fld_arrays=fld_arrays,
-            bunch_source_arrays=bunch_source_arrays,
-            bunch_source_xi_indices=bunch_source_xi_indices,
-            bunch_source_metadata=bunch_source_metadata,
-            store_plasma_history=False,      # IC stage only
-            calculate_rho=calculate_rho,
-            particle_diags=[],
-        )
-    
-        # fld_arrays[5] is e_z in your base-grid layout
-        e_z_arr = fld_arrays[5]
-        Ez_w = Ez_weighted_from_fields(e_z_arr, q_bunch)
-        g_line = q_bunch_line_from_qbunch(q_bunch)
-        return Ez_w, g_line, pp
+#    def solve_with_qbunch(qb2d: np.ndarray):
+#        """
+#        Full wake solve with the current qbunch (same as the method version).
+#        Updates fld_arrays in-place via calculate_wakefields(...).
+#        Returns:
+#          Ez_w : bunch-weighted <Ez>(xi)
+#          g_line: line-charge proxy from q_bunch
+#          pp    : plasma particle history/state returned by calculate_wakefields
+#        """
+#        # update q_bunch and b_t_bunch
+#        q_bunch[:, :] = qb2d
+#        calculate_bunch_source(q_bunch, n_r, n_xi, b_t_bunch)
+#    
+#        # overwrite base-grid slot (index 0)
+#        bunch_source_arrays[0] = b_t_bunch
+#    
+#        calculate_rho = any("rho" in diag for diag in field_diags)
+#    
+#        pp = calculate_wakefields(
+#            laser_a2,
+#            r_max,
+#            xi_min,
+#            xi_max,
+#            n_r,
+#            n_xi,
+#            ppc,
+#            n_p,
+#            r_max_plasma=r_max_plasma,
+#            radial_density=radial_density,
+#            p_shape=p_shape,
+#            max_gamma=max_gamma,
+#            plasma_pusher=plasma_pusher,
+#            ion_motion=ion_motion,
+#            ion_mass=ion_mass,
+#            free_electrons_per_ion=free_electrons_per_ion,
+#            fld_arrays=fld_arrays,
+#            bunch_source_arrays=bunch_source_arrays,
+#            bunch_source_xi_indices=bunch_source_xi_indices,
+#            bunch_source_metadata=bunch_source_metadata,
+#            store_plasma_history=False,      # IC stage only
+#            calculate_rho=calculate_rho,
+#            particle_diags=[],
+#        )
+#    
+#        # fld_arrays[5] is e_z in your base-grid layout
+#        e_z_arr = fld_arrays[5]
+#        Ez_w = Ez_weighted_from_fields(e_z_arr, q_bunch)
+#        g_line = q_bunch_line_from_qbunch(q_bunch)
+#        return Ez_w, g_line, pp
     
     
 
@@ -283,24 +287,26 @@ def beamloading_initial_condition(
 
 
 
-    Ez_w0, g_line0, pp0 = solve_with_qbunch(qb_current)
-    
-    # define bunch-support indices (where there is charge)
-    #support = np.where(np.abs(g_line0) > 0.0)[0]
-    #if support.size < 2:
-    #    # nothing to shape
-    #    return
-    
-    #k_tail = support[-1]
-    
-    Ez_target = Ez_w0[k_tail]   # tail value target (flat)
-    print(f"{Ez_target=}") 
+    #Ez_w0, g_line0, pp0 = solve_with_qbunch(qb_current)
+    #
+    ## define bunch-support indices (where there is charge)
+    ##support = np.where(np.abs(g_line0) > 0.0)[0]
+    ##if support.size < 2:
+    ##    # nothing to shape
+    ##    return
+    #
+    ##k_tail = support[-1]
+    #
+    #Ez_target = Ez_w0[k_tail]   # tail value target (flat)
+    #print(f"{Ez_target=}") 
 
-    # ------------------------------------------------------------
-    # Build plasma cache: state AFTER slice (k_tail + 1)
-    # ------------------------------------------------------------
+
+
+
+
+    # Get Ez_target at k_tail. We build plasma paticle cache to k_tail+2 slice. Then solve_Ez_weighted_km1_cached evolve k_tail+1, k_tail, k_tail-1 to get Ez at k_tail 
     pp_cache = build_pp_cache_at_kp1(
-        k_tail,
+        k_tail+1,
         laser_a2,
         r_max,
         xi_min,
@@ -323,21 +329,69 @@ def beamloading_initial_condition(
         fld_arrays=fld_arrays,
     )
 
-    # Get Ez_target at k_tail (control point is k_tail-1, but your code uses tail value)
-    # We'll compute Ez at km1=k_tail-1 using current qbunch as a reference.
-    #Ez_target = solve_Ez_weighted_km1_cached(qb_current, pp_cache, k_tail - 1)
-    #print(f"{Ez_target=}")
+    Ez_target = solve_Ez_weighted_km1_cached(qb_current, pp_cache, k_tail )
+    print(f"{Ez_target=}")
 
-    max_iter = 10
+
+    # Build plasma particle cache to k_tail+1 slice. Then we can do the SALAME iteration.
+    commit_cache_one_slice(
+        pp_cache,
+        k_tail+1,
+        laser_a2,
+        r_max,
+        xi_min,
+        xi_max,
+        n_r,
+        n_xi,
+        n_p,
+        p_shape=p_shape,
+        max_gamma=max_gamma,
+        bunch_source_arrays=bunch_source_arrays,
+        bunch_source_xi_indices=bunch_source_xi_indices,
+        bunch_source_metadata=bunch_source_metadata,
+        fld_arrays=fld_arrays,
+    )
+
+
+
+    # ------------------------------------------------------------
+    # Build plasma cache: state AFTER slice (k_tail + 1)
+    # ------------------------------------------------------------
+    #pp_cache = build_pp_cache_at_kp1(
+    #    k_tail,
+    #    laser_a2,
+    #    r_max,
+    #    xi_min,
+    #    xi_max,
+    #    n_r,
+    #    n_xi,
+    #    ppc,
+    #    n_p,
+    #    r_max_plasma=r_max_plasma,
+    #    radial_density=radial_density,
+    #    p_shape=p_shape,
+    #    max_gamma=max_gamma,
+    #    plasma_pusher=plasma_pusher,
+    #    ion_motion=ion_motion,
+    #    ion_mass=ion_mass,
+    #    free_electrons_per_ion=free_electrons_per_ion,
+    #    bunch_source_arrays=bunch_source_arrays,
+    #    bunch_source_xi_indices=bunch_source_xi_indices,
+    #    bunch_source_metadata=bunch_source_metadata,
+    #    fld_arrays=fld_arrays,
+    #)
+
+
+    max_iter = 100
     tol = 1e-4
 
     for k in range(k_tail, support[0], -1):
         print(k)
-        if np.abs(g_line0[k]) == 0.0:
+        if np.abs(g_line_var0[k]) == 0.0:
             continue
 
         g_min = -1e-100
-        g_max = 5.0 * g_line0[k]
+        g_max = 5.0 * g_line_var0[k]
         print(f"{g_max=}")
 
         qb_min = set_slice_line_charge_var(qb_var_current, k, g_min)
@@ -404,6 +458,9 @@ def beamloading_initial_condition(
         qb_var_current = qb_new
 
         q_bunch[:, :] = qb_total_from_var(qb_var_current) 
+
+
+        print(f"{np.sum(bunch_source_arrays)=}")
 
         commit_cache_one_slice(
             pp_cache,
