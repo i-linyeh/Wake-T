@@ -329,6 +329,8 @@ def beamloading_initial_condition(
         fld_arrays=fld_arrays,
     )
 
+
+
     Ez_target = solve_Ez_weighted_km1_cached(qb_current, pp_cache, k_tail )
     print(f"{Ez_target=}")
 
@@ -352,6 +354,7 @@ def beamloading_initial_condition(
         fld_arrays=fld_arrays,
     )
 
+    print(f"{np.sum(bunch_source_arrays)=}")
 
 
     # ------------------------------------------------------------
