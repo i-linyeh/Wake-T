@@ -24,6 +24,7 @@ from .utils import longitudinal_gradient, radial_gradient
 import time
 
 from .beamloading_initial_condition import beamloading_initial_condition
+from .beamloading_initial_condition_adaptive_grids import beamloading_initial_condition_adaptive_grids
 
 
 
@@ -444,6 +445,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             witness = self._select_witness_bunch(bunches)
 
             if self.use_adaptive_grids:
+
+                
+                # Run SALAME on adaptive grid
                 # Build adaptive-grid parameter lists exactly as in normal branch.
                 if isinstance(self.adaptive_grid_nr, list):
                     assert len(self.adaptive_grid_nr) == len(bunches), (
@@ -693,16 +697,69 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
+                print("Done bunch deposition for SALAME")
 
 
 
 
 
-                print("Code stop")
+                # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
+                beamloading_initial_condition_adaptive_grids(
+                    #q_bunch=self.q_bunch,
+                    #b_t_bunch=self.b_t_bunch,
+                    chi=self.chi,
+                    r_fld=self.r_fld,
+                    xi_fld=self.xi_fld,
+                    dr=self.dr,
+                    dxi=self.dxi,
+                    n_r=self.n_r,
+                    n_xi=self.n_xi,
+        
+                    n_p=self.n_p,
+                    ppc=self.ppc,
+                    r_max=self.r_max,
+                    xi_min=self.xi_min,
+                    xi_max=self.xi_max,
+                    r_max_plasma=self.r_max_plasma,
+                    p_shape=self.p_shape,
+                    max_gamma=self.max_gamma,
+                    plasma_pusher=self.plasma_pusher,
+                    ion_motion=self.ion_motion,
+                    ion_mass=self.ion_mass,
+                    free_electrons_per_ion=self.free_electrons_per_ion,
+                    field_diags=self.field_diags,
+                    fld_arrays=self.fld_arrays,
+        
+                    laser_a2=laser_a2,
+                    radial_density=radial_density,
+                    bunch_source_arrays=[],          # let the function init its own base slot
+                    bunch_source_xi_indices=[],
+                    bunch_source_metadata=[],
+                    #bunch=bunches[0],                # target bunch you want to shape
+                    bunch=witness,  # the only bunch whose weights get updated
+ 
+                    # NEW: pass fixed + variable deposits separately
+                    #q_fixed=q_fixed,
+                    
+                    q_var=q_var,
+
+
+
+                    )
+
+
+
+
+
+
+
+
+
 
             else:
 
 
+                # Run SALAME on base grid
 
 
                 # --- build q_var = deposit(witness only) ---
@@ -768,56 +825,59 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-                print("Code stop")
+                print("Done bunch deposition for SALAME")
 
 
 
-            # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
-           # beamloading_initial_condition(
-           #     q_bunch=self.q_bunch,
-           #     b_t_bunch=self.b_t_bunch,
-           #     chi=self.chi,
-           #     r_fld=self.r_fld,
-           #     xi_fld=self.xi_fld,
-           #     dr=self.dr,
-           #     dxi=self.dxi,
-           #     n_r=self.n_r,
-           #     n_xi=self.n_xi,
+                # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
+                beamloading_initial_condition(
+                    q_bunch=self.q_bunch,
+                    b_t_bunch=self.b_t_bunch,
+                    chi=self.chi,
+                    r_fld=self.r_fld,
+                    xi_fld=self.xi_fld,
+                    dr=self.dr,
+                    dxi=self.dxi,
+                    n_r=self.n_r,
+                    n_xi=self.n_xi,
+                    n_p=self.n_p,
+                    ppc=self.ppc,
+                    r_max=self.r_max,
+                    xi_min=self.xi_min,
+                    xi_max=self.xi_max,
+                    r_max_plasma=self.r_max_plasma,
+                    p_shape=self.p_shape,
+                    max_gamma=self.max_gamma,
+                    plasma_pusher=self.plasma_pusher,
+                    ion_motion=self.ion_motion,
+                    ion_mass=self.ion_mass,
+                    free_electrons_per_ion=self.free_electrons_per_ion,
+                    field_diags=self.field_diags,
+                    fld_arrays=self.fld_arrays,
+                    laser_a2=laser_a2,
+                    radial_density=radial_density,
+                    bunch_source_arrays=[],  # let the function init its own base slot
+                    bunch_source_xi_indices=[],
+                    bunch_source_metadata=[],
+                    # bunch=bunches[0],                # target bunch you want to shape
+                    bunch=witness,  # the only bunch whose weights get updated
+                    # NEW: pass fixed + variable deposits separately
+                    q_fixed=q_fixed,
+                    q_var=q_var,
+                )
+
+
+
+
+
+
+
+
+
+
+
+
         
-           #     n_p=self.n_p,
-           #     ppc=self.ppc,
-           #     r_max=self.r_max,
-           #     xi_min=self.xi_min,
-           #     xi_max=self.xi_max,
-           #     r_max_plasma=self.r_max_plasma,
-           #     p_shape=self.p_shape,
-           #     max_gamma=self.max_gamma,
-           #     plasma_pusher=self.plasma_pusher,
-           #     ion_motion=self.ion_motion,
-           #     ion_mass=self.ion_mass,
-           #     free_electrons_per_ion=self.free_electrons_per_ion,
-           #     field_diags=self.field_diags,
-           #     fld_arrays=self.fld_arrays,
-        
-           #     laser_a2=laser_a2,
-           #     radial_density=radial_density,
-           #     bunch_source_arrays=[],          # let the function init its own base slot
-           #     bunch_source_xi_indices=[],
-           #     bunch_source_metadata=[],
-           #     #bunch=bunches[0],                # target bunch you want to shape
-           #     bunch=witness,  # the only bunch whose weights get updated
- 
-           #     # NEW: pass fixed + variable deposits separately
-           #     q_fixed=q_fixed,
-           #     q_var=q_var,
-
-
-
-           #     )
-        
-            # 3) IMPORTANT: after bunch.w changed, its bunch.q changes too
-            #    so any future deposits/gathers must use the updated bunch.q.
-            #self._initial_condition_done = True
 
 
             end = time.perf_counter()
@@ -903,82 +963,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     bunch, self.n_p, self.p_shape
                 )
 
-
-
-                #do_beamloading = (not self._initial_condition_done)
-                #
-                #all_deposited = grid.calculate_bunch_source(
-                #    bunch,
-                #    n_p=self.n_p,
-                #    ppc=self.ppc,
-                #    #r_max=self.r_max,
-                #    #xi_min=self.xi_min,
-                #    #xi_max=self.xi_max,
-                #    r_max_plasma=self.r_max_plasma,
-                #    p_shape=self.p_shape,
-                #    max_gamma=self.max_gamma,
-                #    plasma_pusher=self.plasma_pusher,
-                #    ion_motion=self.ion_motion,
-                #    ion_mass=self.ion_mass,
-                #    free_electrons_per_ion=self.free_electrons_per_ion,
-                #    field_diags=self.field_diags,
-                #    laser_a2=laser_a2,
-                #    radial_density=radial_density,
-                #    do_beamloading=do_beamloading,
-                #)
-                #
-                #if do_beamloading:
-                #    self._initial_condition_done = True
-                
-
-
-                #all_deposited = grid.calculate_bunch_source(
-                #    bunch,
-                #    n_p=self.n_p,
-                #    ppc=self.ppc,
-                #    r_max=self.r_max,
-                #    xi_min=self.xi_min,
-                #    xi_max=self.xi_max,
-                #    r_max_plasma=self.r_max_plasma,
-                #    p_shape=self.p_shape,
-                #    max_gamma=self.max_gamma,
-                #    plasma_pusher=self.plasma_pusher,
-                #    ion_motion=self.ion_motion,
-                #    ion_mass=self.ion_mass,
-                #    free_electrons_per_ion=self.free_electrons_per_ion,
-                #    field_diags=self.field_diags,
-                #    fld_arrays=self.fld_arrays,
-                #    laser_a2=laser_a2,
-                #    radial_density=radial_density,
-                #    chi=self.chi,
-
-                #)
-
-
-                print(f"{all_deposited=}")
-                #self.b_t_bunch[:] = 0.0
-                #self.q_bunch[:] = 0.0
-                #all_deposited = deposit_bunch_charge(
-                #    bunch.x,
-                #    bunch.y,
-                #    bunch.xi,
-                #    bunch.q,
-                #    self.n_p,
-                #    self.nr - self.nr_border,
-                #    self.nxi,
-                #    self.r_grid,
-                #    self.xi_grid,
-                #    self.dr,
-                #    self.dxi,
-                #    self.p_shape,
-                #    self.q_bunch,
-                #)
-        
-        
-
-                #bunch_source_arrays = []
-                #bunch_source_xi_indices = []
-                #bunch_source_metadata = []
 
 
 
