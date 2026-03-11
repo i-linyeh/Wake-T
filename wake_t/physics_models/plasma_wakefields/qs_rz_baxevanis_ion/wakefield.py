@@ -389,89 +389,431 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         store_plasma_history = len(self.particle_diags) > 0
 
 
+#        if self.use_SALAME and (not self._initial_condition_done):
+#        #if False:
+#            # 1) build a base-grid deposit of the (initial) bunch distribution
+#            start = time.perf_counter()
+#            #self._deposit_all_bunches_to_base(bunches)
+#
+#
+#
+#            witness = self._select_witness_bunch(bunches)
+#        
+#            # --- build q_fixed = deposit(all non-witness) ---
+#            q_fixed = np.zeros_like(self.q_bunch)
+#            for b in bunches:
+#                if b is witness:
+#                    continue
+#                deposit_bunch_charge(
+#                    b.x, b.y, b.xi, b.q,
+#                    self.n_p, self.n_r, self.n_xi,
+#                    self.r_fld, self.xi_fld,
+#                    self.dr, self.dxi,
+#                    self.p_shape,
+#                    q_fixed,
+#                )
+#        
+#            # --- build q_var = deposit(witness only) ---
+#            q_var = np.zeros_like(self.q_bunch)
+#            deposit_bunch_charge(
+#                witness.x, witness.y, witness.xi, witness.q,
+#                self.n_p, self.n_r, self.n_xi,
+#                self.r_fld, self.xi_fld,
+#                self.dr, self.dxi,
+#                self.p_shape,
+#                q_var,
+#            )
+#        
+#            # store total into self.q_bunch for consistency (optional)
+#            self.q_bunch[:] = q_fixed + q_var
+
+
+
+
         if self.use_SALAME and (not self._initial_condition_done):
-        #if False:
-            # 1) build a base-grid deposit of the (initial) bunch distribution
+
+
+
+            # Initialize empty lists with correct type so that numba can use
+            # them even if there are no bunch sources.
+            bunch_source_arrays = []
+            bunch_source_xi_indices = []
+            bunch_source_metadata = []
+
             start = time.perf_counter()
-            #self._deposit_all_bunches_to_base(bunches)
-
-
-
             witness = self._select_witness_bunch(bunches)
-        
-            # --- build q_fixed = deposit(all non-witness) ---
-            q_fixed = np.zeros_like(self.q_bunch)
-            for b in bunches:
-                if b is witness:
-                    continue
+
+            if self.use_adaptive_grids:
+                # Build adaptive-grid parameter lists exactly as in normal branch.
+                if isinstance(self.adaptive_grid_nr, list):
+                    assert len(self.adaptive_grid_nr) == len(bunches), (
+                        "Several resolutions for the adaptive grids have been "
+                        "given, but they do not match the number of tracked bunches"
+                    )
+                    nr_grids = self.adaptive_grid_nr
+                else:
+                    nr_grids = [self.adaptive_grid_nr] * len(bunches)
+
+                if isinstance(self.adaptive_grid_r_max, list):
+                    assert len(self.adaptive_grid_r_max) == len(bunches), (
+                        "Several `r_max` for the adaptive grids have been given, "
+                        "but they do not match the number of tracked bunches"
+                    )
+                    r_max_grids = self.adaptive_grid_r_max
+                else:
+                    r_max_grids = [self.adaptive_grid_r_max] * len(bunches)
+
+                if isinstance(self.adaptive_grid_r_lim, list):
+                    assert len(self.adaptive_grid_r_lim) == len(bunches), (
+                        "Several `r_lim` for the adaptive grids have been given, "
+                        "but they do not match the number of tracked bunches"
+                    )
+                    r_lim_grids = self.adaptive_grid_r_lim
+                else:
+                    r_lim_grids = [self.adaptive_grid_r_lim] * len(bunches)
+
+                for r_lim, r_max in zip(r_lim_grids, r_max_grids):
+                    if r_lim is not None and r_max is not None and r_max > r_lim:
+                        raise ValueError("`r_max` cannot be larger than `r_lim`")
+
+                # Create/reuse grids exactly like normal adaptive-grid branch.
+                for i, bunch in enumerate(bunches):
+                    if nr_grids[i] is not None:
+                        #if bunch.name not in self.bunch_grids:
+                        self.bunch_grids[bunch.name] = AdaptiveGrid(
+                            bunch.x,
+                            bunch.y,
+                            bunch.xi,
+                            bunch.w,
+                            bunch.name,
+                            nr_grids[i],
+                            self.n_xi,
+                            self.xi_fld,
+                            r_max_grids[i],
+                            r_lim_grids[i],
+                        )
+
+                #if witness.name not in self.bunch_grids:
+                #    raise ValueError(
+                #        "SALAME is enabled, but witness does not have an adaptive grid."
+                #    )
+
+                # Deposit witness using the adaptive-grid API.
+                witness_grid = self.bunch_grids[witness.name]
+                #all_deposited = witness_grid.calculate_bunch_source(
+                #    witness, self.n_p, self.p_shape
+                #)
+                
+                #print(f"{witness_grid.q_bunch}")
+
+
+
+                witness_grid.b_t_bunch[:] = 0.0
+                witness_grid.q_bunch[:] = 0.0
+                all_deposited = deposit_bunch_charge(
+                    witness.x,
+                    witness.y,
+                    witness.xi,
+                    witness.q,
+                    self.n_p,
+                    witness_grid.nr - witness_grid.nr_border,
+                    witness_grid.nxi,
+                    witness_grid.r_grid,
+                    witness_grid.xi_grid,
+                    witness_grid.dr,
+                    witness_grid.dxi,
+                    self.p_shape,
+                    witness_grid.q_bunch,
+                )
+
+                #print(f"{witness_grid.q_bunch}")
+
+
+
+
+                print(f"SALAME witness adaptive deposit: {all_deposited=}")
+
+                # Witness-only variable part from witness adaptive grid.
+                q_var = witness_grid.q_bunch.copy()
+
+
+
+                print(f"{q_var.shape=}")
+
+
+                ## witness-grid source for q_var metadata
+                #q_var_xi_indices = witness_grid.i_grid.copy()
+                #q_var_metadata = (
+                #    np.array(
+                #        [
+                #            witness_grid.r_min_cell,
+                #            witness_grid.r_max_cell_guard,
+                #            witness_grid.dr,
+                #        ]
+                #    )
+                #    / s_d
+                #)
+
+
+
+
+                # ------------------------------------------
+                # q_fixed: each non-witness bunch deposited on
+                # its own adaptive grid using calculate_bunch_source
+                # ------------------------------------------
+                #q_fixed_arrays = []
+                #q_fixed_xi_indices = []
+                #q_fixed_metadata = []
+
+                s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+
+                for i, bunch in enumerate(bunches):
+                    #if nr_grids[i] is not None:
+                #for bunch in bunches_with_grid:
+                    if bunch is witness:
+                        continue
+
+                    grid = self.bunch_grids[bunch.name]
+                    all_deposited = grid.calculate_bunch_source(
+                        bunch, self.n_p, self.p_shape
+                    )
+                    
+
+                    #grid.b_t_bunch[:] = 0.0
+                    #grid.q_bunch[:] = 0.0
+                    #all_deposited = deposit_bunch_charge(
+                    #    bunch.x,
+                    #    bunch.y,
+                    #    bunch.xi,
+                    #    bunch.q,
+                    #    self.n_p,
+                    #    grid.nr - grid.nr_border,
+                    #    grid.nxi,
+                    #    grid.r_grid,
+                    #    grid.xi_grid,
+                    #    grid.dr,
+                    #    grid.dxi,
+                    #    self.p_shape,
+                    #    grid.q_bunch,
+                    #)
+
+                    #calculate_bunch_source(grid.q_bunch, grid.nr, grid.nxi, grid.b_t_bunch)
+
+
+                    bunch_source_arrays.append(grid.b_t_bunch)
+                    bunch_source_xi_indices.append(grid.i_grid)
+                    bunch_source_metadata.append(
+                        np.array([grid.r_min_cell, grid.r_max_cell_guard, grid.dr]) / s_d
+                    )
+
+
+                    print(f"SALAME fixed deposit {bunch.name}: {all_deposited=}")
+
+
+
+
+
+                    if not all_deposited:
+                        #for i, bunch in enumerate(bunches):
+                        #if bunch is witness:
+                        #    continue
+                        deposit_bunch_charge(
+                            bunch.x,
+                            bunch.y,
+                            bunch.xi,
+                            bunch.q,
+                            self.n_p,
+                            self.n_r,
+                            self.n_xi,
+                            self.r_fld,
+                            self.xi_fld,
+                            self.dr,
+                            self.dxi,
+                            self.p_shape,
+                            self.q_bunch,
+                            r_min_deposit=grid.r_max,
+                            )
+
+
+
+
+
+
+                        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+                        bunch_source_arrays.append(self.b_t_bunch)
+                        bunch_source_xi_indices.append(np.arange(self.n_xi))
+                        bunch_source_metadata.append(
+                            np.array(
+                                [
+                                    self.r_fld[0],
+                                    self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                                    self.dr,
+                                ]
+                            )
+                            / s_d
+                        )
+
+                    #print(f"{grid.b_t_bunch=}")
+                    print(f"{bunch_source_arrays=}")
+                    print(f"{bunch_source_xi_indices=}")
+                       
+                       #q_fixed_arrays.append(grid.q_bunch.copy())
+                        #q_fixed_xi_indices.append(grid.i_grid.copy())
+                        #q_fixed_metadata.append(
+                        #np.array([grid.r_min_cell, grid.r_max_cell_guard, grid.dr]) / s_d)
+                    
+
+                # Optional: bunches without adaptive grid
+                # If you truly do not want any base-grid deposition here,
+                ## just leave them out or raise.
+                #if bunches_without_grid:
+                #    raise ValueError(
+                #        "SALAME adaptive-grid mode currently expects all non-witness "
+                #        "bunches contributing to q_fixed to have adaptive grids."
+                #    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                #print(f"{q_var.shape}")
+                #print(f"{q_var_xi_indices}")
+                #print(f"{q_fixed_arrays}")
+                #print(f"{q_fixed_xi_indices}")
+
+
+
+
+
+
+
+
+
+                print("Code stop")
+
+            else:
+
+
+
+
+                # --- build q_var = deposit(witness only) ---
+                q_var = np.zeros_like(self.q_bunch)
                 deposit_bunch_charge(
-                    b.x, b.y, b.xi, b.q,
+                    witness.x, witness.y, witness.xi, witness.q,
                     self.n_p, self.n_r, self.n_xi,
                     self.r_fld, self.xi_fld,
                     self.dr, self.dxi,
                     self.p_shape,
-                    q_fixed,
+                    q_var,
                 )
-        
-            # --- build q_var = deposit(witness only) ---
-            q_var = np.zeros_like(self.q_bunch)
-            deposit_bunch_charge(
-                witness.x, witness.y, witness.xi, witness.q,
-                self.n_p, self.n_r, self.n_xi,
-                self.r_fld, self.xi_fld,
-                self.dr, self.dxi,
-                self.p_shape,
-                q_var,
-            )
-        
-            # store total into self.q_bunch for consistency (optional)
-            self.q_bunch[:] = q_fixed + q_var
 
+
+
+
+                print(f"{q_var.shape=}")
+
+
+
+
+                # --- build q_fixed = deposit(all non-witness) ---
+                q_fixed = np.zeros_like(self.q_bunch)
+                for b in bunches:
+                    if b is witness:
+                        continue
+                    deposit_bunch_charge(
+                        b.x, b.y, b.xi, b.q,
+                        self.n_p, self.n_r, self.n_xi,
+                        self.r_fld, self.xi_fld,
+                        self.dr, self.dxi,
+                        self.p_shape,
+                        q_fixed,
+                    )
+
+
+
+                s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+                
+
+                calculate_bunch_source(q_fixed, self.n_r, self.n_xi, self.b_t_bunch)
+                bunch_source_arrays.append(self.b_t_bunch)
+                bunch_source_xi_indices.append(np.arange(self.n_xi))
+                bunch_source_metadata.append(
+                    np.array(
+                        [
+                            self.r_fld[0],
+                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                            self.dr,
+                        ]
+                    )
+                    / s_d
+                )
+
+
+                print(f"{bunch_source_arrays=}")
+                print(f"{bunch_source_xi_indices=}")
+
+
+
+
+
+
+
+
+                print("Code stop")
 
 
 
             # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
-            beamloading_initial_condition(
-                q_bunch=self.q_bunch,
-                b_t_bunch=self.b_t_bunch,
-                chi=self.chi,
-                r_fld=self.r_fld,
-                xi_fld=self.xi_fld,
-                dr=self.dr,
-                dxi=self.dxi,
-                n_r=self.n_r,
-                n_xi=self.n_xi,
+           # beamloading_initial_condition(
+           #     q_bunch=self.q_bunch,
+           #     b_t_bunch=self.b_t_bunch,
+           #     chi=self.chi,
+           #     r_fld=self.r_fld,
+           #     xi_fld=self.xi_fld,
+           #     dr=self.dr,
+           #     dxi=self.dxi,
+           #     n_r=self.n_r,
+           #     n_xi=self.n_xi,
         
-                n_p=self.n_p,
-                ppc=self.ppc,
-                r_max=self.r_max,
-                xi_min=self.xi_min,
-                xi_max=self.xi_max,
-                r_max_plasma=self.r_max_plasma,
-                p_shape=self.p_shape,
-                max_gamma=self.max_gamma,
-                plasma_pusher=self.plasma_pusher,
-                ion_motion=self.ion_motion,
-                ion_mass=self.ion_mass,
-                free_electrons_per_ion=self.free_electrons_per_ion,
-                field_diags=self.field_diags,
-                fld_arrays=self.fld_arrays,
+           #     n_p=self.n_p,
+           #     ppc=self.ppc,
+           #     r_max=self.r_max,
+           #     xi_min=self.xi_min,
+           #     xi_max=self.xi_max,
+           #     r_max_plasma=self.r_max_plasma,
+           #     p_shape=self.p_shape,
+           #     max_gamma=self.max_gamma,
+           #     plasma_pusher=self.plasma_pusher,
+           #     ion_motion=self.ion_motion,
+           #     ion_mass=self.ion_mass,
+           #     free_electrons_per_ion=self.free_electrons_per_ion,
+           #     field_diags=self.field_diags,
+           #     fld_arrays=self.fld_arrays,
         
-                laser_a2=laser_a2,
-                radial_density=radial_density,
-                bunch_source_arrays=[],          # let the function init its own base slot
-                bunch_source_xi_indices=[],
-                bunch_source_metadata=[],
-                #bunch=bunches[0],                # target bunch you want to shape
-                bunch=witness,  # the only bunch whose weights get updated
+           #     laser_a2=laser_a2,
+           #     radial_density=radial_density,
+           #     bunch_source_arrays=[],          # let the function init its own base slot
+           #     bunch_source_xi_indices=[],
+           #     bunch_source_metadata=[],
+           #     #bunch=bunches[0],                # target bunch you want to shape
+           #     bunch=witness,  # the only bunch whose weights get updated
  
-                # NEW: pass fixed + variable deposits separately
-                q_fixed=q_fixed,
-                q_var=q_var,
+           #     # NEW: pass fixed + variable deposits separately
+           #     q_fixed=q_fixed,
+           #     q_var=q_var,
 
 
 
-                )
+           #     )
         
             # 3) IMPORTANT: after bunch.w changed, its bunch.q changes too
             #    so any future deposits/gathers must use the updated bunch.q.
@@ -958,6 +1300,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
         if True:
+
+
+            print(f"{bunch_source_arrays=}")
 
             # Calculate rho only if requested in the diagnostics.
             calculate_rho = any("rho" in diag for diag in self.field_diags)
