@@ -18,8 +18,19 @@ from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution,
 from wake_t.particles.deposition import deposit_3d_distribution
 
 
+
+
+#Adaptive grid:
+#[ 2 guards | physical cells + 2 border cells | 2 guards ]
+
 def beamloading_initial_condition_adaptive_grids(
     *,
+    
+    i_grid: np.ndarray
+    r_max_cell_guard: float
+    r_min_cell: float
+    nr_border: float
+
     # --- grid arrays / geometry (base grid OR adaptive grid) ---
     #q_bunch: np.ndarray,
     #b_t_bunch: np.ndarray,
@@ -28,13 +39,13 @@ def beamloading_initial_condition_adaptive_grids(
     xi_fld: np.ndarray,
     dr: float,
     dxi: float,
-    n_r: int,
+    n_r: int, #Physical cells + 2 border cells outside
     n_xi: int,
 
     # --- solver / plasma parameters (always from Quasistatic2DWakefieldIon) ---
     n_p: float,
     ppc: np.ndarray,
-    r_max: float,
+    r_max: float, #Physical cells max + dr/2 check how to use it 
     xi_min: float,
     xi_max: float,
     r_max_plasma: float,
@@ -44,7 +55,7 @@ def beamloading_initial_condition_adaptive_grids(
     ion_motion: bool,
     ion_mass: float,
     free_electrons_per_ion: int,
-    field_diags: list,
+    #field_diags: list,
     fld_arrays: list,
 
     # --- runtime inputs ---
@@ -240,9 +251,9 @@ def beamloading_initial_condition_adaptive_grids(
 
 
         bunch_source_arrays.append(b_t_bunch)
-        bunch_source_xi_indices.append(grid.i_grid)
+        bunch_source_xi_indices.append(i_grid)
         bunch_source_metadata.append(
-            np.array([grid.r_min_cell, grid.r_max_cell_guard, grid.dr]) / s_d
+            np.array([r_min_cell, r_max_cell_guard, dr]) / s_d
         )
 
 
@@ -585,7 +596,7 @@ def beamloading_initial_condition_adaptive_grids(
         bunch.xi, bunch.x, bunch.y,
         ones,
         xi_fld[0], r_fld[0],
-        n_xi, n_r, dxi, dr,
+        n_xi, n_r-nr_border, dxi, dr,
         count_grid,
         p_shape="cubic",
         use_ruyten=True,
@@ -664,7 +675,7 @@ def beamloading_initial_condition_adaptive_grids(
     q_gathered, _ = inverse_deposit_3d_distribution(
         bunch.xi, bunch.x, bunch.y,
         xi_fld[0], r_fld[0],
-        n_xi, n_r, dxi, dr,
+        n_xi, n_r-nr_border, dxi, dr,
         qb_var_current,
         p_shape=p_shape,
         use_ruyten=True,
@@ -675,7 +686,7 @@ def beamloading_initial_condition_adaptive_grids(
     ones = np.ones_like(bunch.xi)
     deposit_3d_distribution(
         bunch.xi, bunch.x, bunch.y, ones,
-        xi_fld[0], r_fld[0], n_xi, n_r, dxi, dr,
+        xi_fld[0], r_fld[0], n_xi, n_r-nr_border, dxi, dr,
         count_grid,
         p_shape=p_shape,
         use_ruyten=True,
@@ -686,7 +697,7 @@ def beamloading_initial_condition_adaptive_grids(
     count_p, _ = inverse_deposit_3d_distribution(
         bunch.xi, bunch.x, bunch.y,
         xi_fld[0], r_fld[0],
-        n_xi, n_r, dxi, dr,
+        n_xi, n_r-nr_border, dxi, dr,
         count_grid,
         p_shape=p_shape,
         use_ruyten=True,
@@ -825,7 +836,7 @@ def beamloading_initial_condition_adaptive_grids(
         bunch.xi, bunch.x, bunch.y,
         q_inv,
         xi_fld[0], r_fld[0],
-        n_xi, n_r, dxi, dr,
+        n_xi, n_r-nr_border, dxi, dr,
         rho1,
         p_shape="cubic",
         use_ruyten=True,

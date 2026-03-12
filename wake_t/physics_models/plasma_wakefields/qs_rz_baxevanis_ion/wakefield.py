@@ -704,22 +704,30 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
                 # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
+                #Adaptive grid:
+                #[ 2 guards | physical cells + 2 border cells | 2 guards ]       
                 beamloading_initial_condition_adaptive_grids(
                     #q_bunch=self.q_bunch,
                     #b_t_bunch=self.b_t_bunch,
+                    i_grid=witness_grid.i_grid
+                    r_max_cell_guard=witness_grid.r_max_cell_guard
+                    r_min_cell=witness_grid.r_min_cell
+                    nr_border=witness_grid.nr_border
+
+                    
                     chi=self.chi,
-                    r_fld=self.r_fld,
-                    xi_fld=self.xi_fld,
-                    dr=self.dr,
+                    r_fld=witness_grid.r_grid, # physcial cells + 2 border cells outside
+                    xi_fld=witness_grid.xi_grid,
+                    dr=witness_grid.dr, # to check,
                     dxi=self.dxi,
-                    n_r=self.n_r,
-                    n_xi=self.n_xi,
+                    n_r=witness_grid.nr, # physical cells + 2 border outside. 
+                    n_xi=witness_grid.nxi,
         
                     n_p=self.n_p,
                     ppc=self.ppc,
-                    r_max=self.r_max,
-                    xi_min=self.xi_min,
-                    xi_max=self.xi_max,
+                    r_max=witness_grid.r_max, # physical cells max + dr/2 to check
+                    xi_min=witness_grid.xi_min,
+                    xi_max=witness_grid.xi_max,
                     r_max_plasma=self.r_max_plasma,
                     p_shape=self.p_shape,
                     max_gamma=self.max_gamma,
@@ -727,14 +735,14 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     ion_motion=self.ion_motion,
                     ion_mass=self.ion_mass,
                     free_electrons_per_ion=self.free_electrons_per_ion,
-                    field_diags=self.field_diags,
-                    fld_arrays=self.fld_arrays,
+                    #field_diags=self.field_diags,
+                    fld_arrays=self.fld_arrays, # to check
         
                     laser_a2=laser_a2,
                     radial_density=radial_density,
-                    bunch_source_arrays=[],          # let the function init its own base slot
-                    bunch_source_xi_indices=[],
-                    bunch_source_metadata=[],
+                    bunch_source_arrays=bunch_source_arrays, 
+                    bunch_source_xi_indices=bunch_source_xi_indices,
+                    bunch_source_metadata=bunch_source_metadata,
                     #bunch=bunches[0],                # target bunch you want to shape
                     bunch=witness,  # the only bunch whose weights get updated
  
