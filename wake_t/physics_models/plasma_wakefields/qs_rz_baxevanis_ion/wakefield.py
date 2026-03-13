@@ -706,28 +706,28 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
                 #Adaptive grid:
                 #[ 2 guards | physical cells + 2 border cells | 2 guards ]       
-                beamloading_initial_condition_adaptive_grids(
-                    #q_bunch=self.q_bunch,
-                    #b_t_bunch=self.b_t_bunch,
-                    i_grid=witness_grid.i_grid
-                    r_max_cell_guard=witness_grid.r_max_cell_guard
-                    r_min_cell=witness_grid.r_min_cell
-                    nr_border=witness_grid.nr_border
 
-                    
+
+
+                beamloading_initial_condition_adaptive_grids(
+                    ag_i_grid=witness_grid.i_grid,
+                    ag_r_grid=witness_grid.r_grid,
+                    ag_xi_grid=witness_grid.xi_grid,
+                    ag_dr=witness_grid.dr,
+                    ag_dxi=witness_grid.dxi,
+                    ag_nr=witness_grid.nr,
+                    ag_nxi=witness_grid.nxi,
+                    ag_r_max=witness_grid.r_max,
+                    ag_xi_min=witness_grid.xi_min,
+                    ag_xi_max=witness_grid.xi_max,
+                    ag_psi_grid=witness_grid.psi_grid,
+                    ag_bt_grid=witness_grid.b_t,
+                
                     chi=self.chi,
-                    r_fld=witness_grid.r_grid, # physcial cells + 2 border cells outside
-                    xi_fld=witness_grid.xi_grid,
-                    dr=witness_grid.dr, # to check,
-                    dxi=self.dxi,
-                    n_r=witness_grid.nr, # physical cells + 2 border outside. 
-                    n_xi=witness_grid.nxi,
-        
+                    fld_arrays=self.fld_arrays,
+                
                     n_p=self.n_p,
                     ppc=self.ppc,
-                    r_max=witness_grid.r_max, # physical cells max + dr/2 to check
-                    xi_min=witness_grid.xi_min,
-                    xi_max=witness_grid.xi_max,
                     r_max_plasma=self.r_max_plasma,
                     p_shape=self.p_shape,
                     max_gamma=self.max_gamma,
@@ -735,25 +735,68 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     ion_motion=self.ion_motion,
                     ion_mass=self.ion_mass,
                     free_electrons_per_ion=self.free_electrons_per_ion,
-                    #field_diags=self.field_diags,
-                    fld_arrays=self.fld_arrays, # to check
-        
+                
                     laser_a2=laser_a2,
                     radial_density=radial_density,
-                    bunch_source_arrays=bunch_source_arrays, 
+                
+                    bunch_source_arrays=bunch_source_arrays,
                     bunch_source_xi_indices=bunch_source_xi_indices,
                     bunch_source_metadata=bunch_source_metadata,
-                    #bunch=bunches[0],                # target bunch you want to shape
-                    bunch=witness,  # the only bunch whose weights get updated
- 
-                    # NEW: pass fixed + variable deposits separately
-                    #q_fixed=q_fixed,
-                    
+                
+                    bunch=witness,
                     q_var=q_var,
+                )
 
 
 
-                    )
+                #beamloading_initial_condition_adaptive_grids(
+                #    #q_bunch=self.q_bunch,
+                #    #b_t_bunch=self.b_t_bunch,
+                #    i_grid=witness_grid.i_grid
+                #    r_max_cell_guard=witness_grid.r_max_cell_guard
+                #    r_min_cell=witness_grid.r_min_cell
+                #    nr_border=witness_grid.nr_border
+
+                #    
+                #    chi=self.chi,
+                #    r_fld=witness_grid.r_grid, # physcial cells + 2 border cells outside
+                #    xi_fld=witness_grid.xi_grid,
+                #    dr=witness_grid.dr, # to check,
+                #    dxi=self.dxi,
+                #    n_r=witness_grid.nr, # physical cells + 2 border outside. 
+                #    n_xi=witness_grid.nxi,
+        
+                #    n_p=self.n_p,
+                #    ppc=self.ppc,
+                #    r_max=witness_grid.r_max, # physical cells max + dr/2 to check
+                #    xi_min=witness_grid.xi_min,
+                #    xi_max=witness_grid.xi_max,
+                #    r_max_plasma=self.r_max_plasma,
+                #    p_shape=self.p_shape,
+                #    max_gamma=self.max_gamma,
+                #    plasma_pusher=self.plasma_pusher,
+                #    ion_motion=self.ion_motion,
+                #    ion_mass=self.ion_mass,
+                #    free_electrons_per_ion=self.free_electrons_per_ion,
+                #    #field_diags=self.field_diags,
+                #    fld_arrays=self.fld_arrays, # to check
+        
+                #    laser_a2=laser_a2,
+                #    radial_density=radial_density,
+                #    bunch_source_arrays=bunch_source_arrays, 
+                #    bunch_source_xi_indices=bunch_source_xi_indices,
+                #    bunch_source_metadata=bunch_source_metadata,
+                #    #bunch=bunches[0],                # target bunch you want to shape
+                #    bunch=witness,  # the only bunch whose weights get updated
+ 
+                #    # NEW: pass fixed + variable deposits separately
+                #    #q_fixed=q_fixed,
+                #    
+                #    q_var=q_var,
+
+
+
+                #    )
 
 
 
