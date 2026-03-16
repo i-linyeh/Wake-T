@@ -142,6 +142,8 @@ def beamloading_initial_condition_adaptive_grids(
         calculate_bunch_source(q_var2d, ag_nr, ag_nxi, bt)
         return bt
 
+
+    print("start SALAME solver")
     # ----------------- sanity / setup -----------------
     if len(bunch_source_arrays) != len(bunch_source_xi_indices) or len(bunch_source_arrays) != len(bunch_source_metadata):
         raise ValueError("bunch_source_arrays / xi_indices / metadata must have same length")
@@ -165,6 +167,7 @@ def beamloading_initial_condition_adaptive_grids(
     else:
         k_tail = support[-1]
 
+        print("before build_pp_cache")
         # Build cache ready for slice (k_tail + 1), with only fixed bunch sources.
         pp_cache = build_pp_cache_at_kp1(
             k_tail=k_tail + 1,
@@ -193,6 +196,7 @@ def beamloading_initial_condition_adaptive_grids(
             ag_psi_grid=ag_psi_grid,
             ag_bt_grid=ag_bt_grid,
         )
+        print("after build_pp_cache")
 
         # Tail target field: fixed bunches + current target bunch
         Ez_target = solve_Ez_weighted_km1_cached(qb_var_current, pp_cache, k_tail)

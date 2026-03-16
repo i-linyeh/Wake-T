@@ -168,22 +168,40 @@ def evolve_window_inplace_AG(
     Resume from existing plasma state and evolve only a small slice window.
     Write psi and b_theta only onto the single target adaptive grid.
     """
+    print("In evolve_window_inplace_AG, start")
     ions_computed = False
     pp_species_list = [PlasmaParticleContainer(species) for species in pp_serialized_list]
 
+
+   # laser_a2 / nabla_a2 live on the BASE grid; derive base-grid dr from r_fld_n.
+    dr_base = r_fld_n[1] - r_fld_n[0]
+
+
     for slice_i in range(start_slice_i, stop_slice_i - 1, -1):
         pp_sort(pp_species_list)
-
+        print("In evolve_window_inplace_AG, start laser source")
         if has_laser_source:
+            # ag_i_grid[slice_i] maps local AG index -> base-grid plasma slice index
+            base_slice = ag_i_grid[slice_i]
             pp_gather_laser_sources(
                 pp_species_list,
-                laser_a2[slice_i + 2],
-                nabla_a2[slice_i + 2],
+                laser_a2[base_slice + 2],
+                nabla_a2[base_slice + 2],
                 r_fld_n[0],
                 r_fld_n[-1],
-                dr,
+                dr_base,
             )
 
+            #pp_gather_laser_sources(
+            #    pp_species_list,
+            #    laser_a2[slice_i + 2],
+            #    nabla_a2[slice_i + 2],
+            #    r_fld_n[0],
+            #    r_fld_n[-1],
+            #    dr,
+            #)
+
+        print("In evolve_window_inplace_AG, start beam source")
         if has_beam_source:
             pp_gather_bunch_sources(
                 pp_species_list,
@@ -274,6 +292,8 @@ def build_pp_cache_at_kp1(
 
     In SALAME single-AG mode, only the target AG is written.
     """
+    
+    print("In build_pp_chache, start")
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
     s_d = ge.plasma_skin_depth(n_p * 1e-6)
@@ -292,6 +312,7 @@ def build_pp_cache_at_kp1(
 
     def radial_density_normalized(r):
         return radial_density(r * s_d) / n_p
+    print("In build_pp_chache, after normalization")
 
     nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
 
@@ -310,11 +331,27 @@ def build_pp_cache_at_kp1(
 
     has_laser_source = laser_a2 is not None
     if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+        # laser_a2 lives on the BASE grid; allocate nabla_a2 with base-grid dims
+        n_xi_base = laser_a2.shape[0] - 4
+        n_r_base  = laser_a2.shape[1] - 4
+        dr_base   = r_fld_n[1] - r_fld_n[0]
+        nabla_a2  = np.zeros((n_xi_base + 4, n_r_base + 4))
+        radial_gradient(laser_a2[2:-2, 2:-2], dr_base, nabla_a2[2:-2, 2:-2])
+
+        #radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
     else:
         laser_a2 = np.zeros((0, 0))
         nabla_a2 = np.zeros((0, 0))
 
+
+    has_beam_source = len(bunch_source_arrays) > 0
+    if not has_beam_source:
+        # need to set the dtype for JIT
+        bunch_source_arrays.append(np.zeros((0, 0)))
+        bunch_source_xi_indices.append(np.zeros(0, dtype=np.int64))
+        bunch_source_metadata.append(np.zeros(0))
+
+    print("In build_pp_chache, after zeros")
     init_list = [
         {
             "charge": free_electrons_per_ion,
@@ -328,6 +365,9 @@ def build_pp_cache_at_kp1(
         },
     ]
 
+    print("In build_pp_chache, before pp_initialize")
+
+
     species_list = pp_initialize(
         init_list,
         n_xi,
@@ -340,6 +380,9 @@ def build_pp_cache_at_kp1(
     )
 
     pp_cache = tuple(s.serialize() for s in species_list)
+
+
+    print("In build_pp_chache, before evolve_window")
 
     # evolve tail -> k_tail+1 so returned state is ready for slice k_tail
     evolve_window_inplace_AG(
@@ -372,6 +415,7 @@ def build_pp_cache_at_kp1(
         n_xi - 1,
         k_tail + 1,
     )
+    print("In build_pp_chache, after evolve_window")
 
     return pp_cache
 

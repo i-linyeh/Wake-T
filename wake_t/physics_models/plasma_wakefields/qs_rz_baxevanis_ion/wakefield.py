@@ -707,7 +707,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 #Adaptive grid:
                 #[ 2 guards | physical cells + 2 border cells | 2 guards ]       
 
-
+                print(f"{bunch_source_arrays=}")
 
                 beamloading_initial_condition_adaptive_grids(
                     ag_i_grid=witness_grid.i_grid,
