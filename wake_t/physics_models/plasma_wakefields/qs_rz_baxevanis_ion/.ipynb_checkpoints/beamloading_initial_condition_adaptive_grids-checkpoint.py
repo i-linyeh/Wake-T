@@ -13,7 +13,6 @@ from .solver_adaptive_grids import (
 
 from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
 from wake_t.particles.deposition import deposit_3d_distribution
-from .b_theta_bunch import calculate_bunch_source, calculate_bunch_source_slice
 
 
 def beamloading_initial_condition_adaptive_grids(
@@ -51,7 +50,7 @@ def beamloading_initial_condition_adaptive_grids(
     laser_a2,
     radial_density,
 
-    # fixed bunch sources from all non-target bunches
+    # q_fixed from all non-target bunches, already expressed as bunch sources
     bunch_source_arrays: list,
     bunch_source_xi_indices: list,
     bunch_source_metadata: list,
@@ -74,36 +73,12 @@ def beamloading_initial_condition_adaptive_grids(
 
     Output / side effects
     ---------------------
+    - updates q_var in-place logically through qb_var_current
     - updates bunch.w
-    - writes final shaped deposit into q_var
+    - writes final shaped deposit into q_var and ag_psi_grid/ag_bt_grid
     """
 
-    print("start SALAME solver")
-
-    # ------------------------------------------------------------------
-    # sanity / setup
-    # ------------------------------------------------------------------
-    if len(bunch_source_arrays) != len(bunch_source_xi_indices):
-        raise ValueError("bunch_source_arrays / xi_indices must have same length")
-    if len(bunch_source_arrays) != len(bunch_source_metadata):
-        raise ValueError("bunch_source_arrays / metadata must have same length")
-
-    s_d = ge.plasma_skin_depth(n_p * 1e-6)
-
-    # Metadata convention expected by pp_gather_bunch_sources:
-    # [r_min, r_max, dr] all normalized by s_d
-    ag_metadata = np.array(
-        [
-            ag_r_grid[0],
-            ag_r_grid[-1] + 2 * ag_dr,   # mimic base-grid convention
-            ag_dr,
-        ],
-        dtype=np.float64,
-    ) / s_d
-
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
+    # ----------------- helpers -----------------
     def q_line_from_q2d(q2d: np.ndarray) -> np.ndarray:
         q = q2d[2:-2, 2:-2]
         return np.sum(q, axis=1)
@@ -126,64 +101,12 @@ def beamloading_initial_condition_adaptive_grids(
             s = w.sum()
         return float((Ez_r * w).sum() / s)
 
-    def q_var_to_bt(q_var2d: np.ndarray) -> np.ndarray:
-        """
-        Convert target AG q_var to bunch-source b_theta array on the same AG.
-        """
-        bt = np.zeros_like(q_var2d)
-        calculate_bunch_source(q_var2d, ag_nr, ag_nxi, bt)
-        return bt
-
-    def append_trial_target_source(
-        fixed_arrays: list,
-        fixed_xi_indices: list,
-        fixed_metadata: list,
-        q_var2d: np.ndarray,
-    ):
-        """
-        Build trial source lists = fixed sources + full target AG source.
-        """
-        bt_trial = q_var_to_bt(q_var2d)
-        arrays = list(fixed_arrays) + [bt_trial]
-        xi_idx = list(fixed_xi_indices) + [ag_i_grid.copy()]
-        metadata = list(fixed_metadata) + [ag_metadata.copy()]
-        return arrays, xi_idx, metadata
-
-    def append_committed_target_slice_source(
-        fixed_arrays: list,
-        fixed_xi_indices: list,
-        fixed_metadata: list,
-        q_var2d: np.ndarray,
-        k: int,
-    ):
-        """
-        Build source lists = fixed sources + ONLY accepted target slice k.
-
-        This matches the base-grid SALAME logic:
-        - during root finding, the variable bunch slice k is included in the trial solve
-        - after acceptance, only slice k is committed into the causal cache
-        """
-        bt_one_slice = np.zeros_like(q_var2d)
-        calculate_bunch_source_slice(q_var2d, ag_nr, k, bt_one_slice)
-
-        arrays = list(fixed_arrays) + [bt_one_slice]
-        xi_idx = list(fixed_xi_indices) + [ag_i_grid.copy()]
-        metadata = list(fixed_metadata) + [ag_metadata.copy()]
-        return arrays, xi_idx, metadata
-
     def solve_Ez_weighted_km1_cached(q_var2d: np.ndarray, pp_cache, km1: int) -> float:
         """
         For current variable target bunch deposit q_var2d, compute weighted Ez at slice km1
         using cached plasma state ready for slice k = km1+1.
         """
         k = km1 + 1
-
-        arrays_trial, xi_trial, md_trial = append_trial_target_source(
-            bunch_source_arrays,
-            bunch_source_xi_indices,
-            bunch_source_metadata,
-            q_var2d,
-        )
 
         Ez_r = calculate_wakefields_ez_km1_from_cache(
             pp_state_kp1=pp_cache,
@@ -199,9 +122,9 @@ def beamloading_initial_condition_adaptive_grids(
             r_max_plasma=r_max_plasma,
             p_shape=p_shape,
             max_gamma=max_gamma,
-            bunch_source_arrays=arrays_trial,
-            bunch_source_xi_indices=xi_trial,
-            bunch_source_metadata=md_trial,
+            bunch_source_arrays=bunch_source_arrays + [q_var_to_bt(q_var2d)],
+            bunch_source_xi_indices=bunch_source_xi_indices + [ag_i_grid],
+            bunch_source_metadata=bunch_source_metadata + [ag_metadata],
             fld_arrays=fld_arrays,
             ag_i_grid=ag_i_grid,
             ag_r_grid=ag_r_grid,
@@ -210,19 +133,36 @@ def beamloading_initial_condition_adaptive_grids(
         )
         return Ez_weighted_at_slice(Ez_r, q_var2d, km1)
 
-    # ------------------------------------------------------------------
-    # initial variable bunch state
-    # ------------------------------------------------------------------
+    def q_var_to_bt(q_var2d: np.ndarray) -> np.ndarray:
+        """
+        Convert target AG q_var to bunch-source b_theta array on the same AG.
+        """
+        bt = np.zeros_like(q_var2d)
+        from .b_theta_bunch import calculate_bunch_source
+        calculate_bunch_source(q_var2d, ag_nr, ag_nxi, bt)
+        return bt
+
+
+    print("start SALAME solver")
+    # ----------------- sanity / setup -----------------
+    if len(bunch_source_arrays) != len(bunch_source_xi_indices) or len(bunch_source_arrays) != len(bunch_source_metadata):
+        raise ValueError("bunch_source_arrays / xi_indices / metadata must have same length")
+
+    s_d = ge.plasma_skin_depth(n_p * 1e-6)
+    ag_metadata = np.array(
+        [
+            ag_r_grid[0],
+            ag_r_grid[-1] + 2 * ag_dr,   # mimic base-grid metadata convention
+            ag_dr,
+        ]
+    ) / s_d
+
     qb_var_current = q_var.copy()
 
     g_line_var0 = q_line_from_q2d(qb_var_current)
     support = np.where(np.abs(g_line_var0) > 0.0)[0]
-
-    print(f"{support=}")
-    print(f"{g_line_var0=}")
-
     if support.size < 2:
-        print("support.size < 2, skip SALAME shaping")
+        # nothing to shape, but still map current AG deposit back to bunch weights
         qb_var_final = qb_var_current
     else:
         k_tail = support[-1]
@@ -263,7 +203,7 @@ def beamloading_initial_condition_adaptive_grids(
         print(f"{Ez_target=}")
 
         # Advance cache by one slice so iteration can proceed from k_tail downward
-        # using only fixed bunches.
+        # using only fixed bunches. Variable bunch slice k is added only in the trial solve.
         commit_cache_one_slice(
             pp_cache=pp_cache,
             k=k_tail + 1,
@@ -356,15 +296,8 @@ def beamloading_initial_condition_adaptive_grids(
 
             qb_var_current = qb_new
 
-            # Commit accepted target slice k into the plasma cache.
-            arrays_commit, xi_commit, md_commit = append_committed_target_slice_source(
-                bunch_source_arrays,
-                bunch_source_xi_indices,
-                bunch_source_metadata,
-                qb_var_current,
-                k,
-            )
-
+            # commit only fixed sources to cache at slice k
+            # variable bunch remains trial-only in SALAME root search
             commit_cache_one_slice(
                 pp_cache=pp_cache,
                 k=k,
@@ -377,9 +310,9 @@ def beamloading_initial_condition_adaptive_grids(
                 n_p=n_p,
                 p_shape=p_shape,
                 max_gamma=max_gamma,
-                bunch_source_arrays=arrays_commit,
-                bunch_source_xi_indices=xi_commit,
-                bunch_source_metadata=md_commit,
+                bunch_source_arrays=bunch_source_arrays,
+                bunch_source_xi_indices=bunch_source_xi_indices,
+                bunch_source_metadata=bunch_source_metadata,
                 fld_arrays=fld_arrays,
                 ag_i_grid=ag_i_grid,
                 ag_r_grid=ag_r_grid,
@@ -389,9 +322,7 @@ def beamloading_initial_condition_adaptive_grids(
 
         qb_var_final = qb_var_current
 
-    # ------------------------------------------------------------------
-    # write final target AG deposit
-    # ------------------------------------------------------------------
+    # ----------------- write final target AG deposit -----------------
     q_var[:, :] = qb_var_final
 
     # sanitize chi to avoid NaN/Inf killing laser envelope
@@ -399,9 +330,7 @@ def beamloading_initial_condition_adaptive_grids(
     if not np.all(np.isfinite(chi_int)):
         chi_int[~np.isfinite(chi_int)] = 0.0
 
-    # ------------------------------------------------------------------
-    # inverse map AG grid deposit -> target bunch particle weights
-    # ------------------------------------------------------------------
+    # ----------------- inverse map AG grid deposit -> target bunch particle weights -----------------
     q_gathered, _ = inverse_deposit_3d_distribution(
         bunch.xi,
         bunch.x,
@@ -485,6 +414,3 @@ def beamloading_initial_condition_adaptive_grids(
     q_normalized = q_inv / k_norm
 
     bunch.w = q_normalized / bunch.q_species
-
-    # keep AG b_theta consistent with final q_var for later diagnostics / gather
-    ag_bt_grid[:, :] = q_var_to_bt(q_var)

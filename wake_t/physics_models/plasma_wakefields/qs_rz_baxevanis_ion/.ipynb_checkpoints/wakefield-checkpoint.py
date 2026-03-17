@@ -1,0 +1,1535 @@
+from typing import Optional, Callable, List, Union, Dict
+from warnings import warn
+
+import numpy as np
+from numpy.typing import ArrayLike
+import scipy.constants as ct
+import aptools.plasma_accel.general_equations as ge
+
+from .solver import calculate_wakefields, calculate_wakefields_ez_slice, calculate_wakefields_ez_km1_from_cache, build_pp_cache_at_kp1, commit_cache_one_slice
+from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge, calculate_bunch_source_slice
+from .adaptive_grid import AdaptiveGrid
+from .utils import calculate_laser_a2
+from wake_t.fields.rz_wakefield import RZWakefield
+from wake_t.physics_models.laser.laser_pulse import LaserPulse
+from wake_t.particles.particle_bunch import ParticleBunch
+from wake_t.particles.interpolation import gather_main_fields_cyl_linear
+
+from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
+from wake_t.particles.deposition import deposit_3d_distribution
+
+
+from .utils import longitudinal_gradient, radial_gradient
+
+import time
+
+from .beamloading_initial_condition import beamloading_initial_condition
+from .beamloading_initial_condition_adaptive_grids import beamloading_initial_condition_adaptive_grids
+
+
+
+
+class Quasistatic2DWakefieldIon(RZWakefield):
+    """
+    This class calculates the plasma wakefields using the gridless
+    quasi-static model in r-z geometry originally developed by P. Baxevanis
+    and G. Stupakov [1]_.
+
+    The model implemented here includes additional features with respect to the
+    original version in [1]_. Among them is the support for laser drivers,
+    particle beams (instead of an analytic charge distribution), non-uniform
+    and finite plasma density profiles, as well as an Adams-Bashforth pusher
+    for the plasma particles (in addition the original Runke-Kutta pusher).
+
+    As a kinetic quasi-static model in r-z geometry, it computes the plasma
+    response by evolving a 1D radial plasma column from the front to the back
+    of the simulation domain. A special feature of this model is that it does
+    not need a grid in order to compute this evolution, and it allows the
+    fields ``E`` and ``B`` to be calculated at any radial position in the
+    plasma column.
+
+    In the Wake-T implementation, a grid is used only in order to be able
+    to easily interpolate the fields to the beam particles. After evolving the
+    plasma column, ``E`` and ``B`` are calculated at the locations of the grid
+    nodes. Similarly, the charge density ``rho`` and susceptibility ``chi``
+    of the plasma are computed by depositing the charge of the plasma
+    particles on the same grid. This useful for diagnostics and for evolving
+    a laser pulse.
+
+    Parameters
+    ----------
+    density_function : callable
+        Function that returns the density value at the given position (z, r).
+        This parameter is given by the ``PlasmaStage`` and does not need
+        to be specified by the user.
+    r_max : float
+        Maximum radial position up to which plasma wakefield will be
+        calculated.
+    xi_min : float
+        Minimum longitudinal (speed of light frame) position up to which
+        plasma wakefield will be calculated.
+    xi_max : float
+        Maximum longitudinal (speed of light frame) position up to which
+        plasma wakefield will be calculated.
+    n_r : int
+        Number of grid elements along `r` to calculate the wakefields.
+    n_xi : int
+        Number of grid elements along `xi` to calculate the wakefields.
+    ppc : array_like, optional
+        Number of plasma particles per radial cell. It can be a single number
+        (e.g., ``ppc=2``) if the plasma should have the same number of
+        particles per cell everywhere. Alternatively, a different number
+        of particles per cell at different radial locations can also be
+        specified. This can be useful, for example, when using adaptive grids
+        with very narrow beams that might require more plasma particles close
+        to the axis. To achieve this, an array-like structure should be given
+        where each item contains two values: the number of particles per cell
+        and the radius up to which this number should be used. For example
+        to have 8 ppc up to a radius of 100µm and 2 ppc for higher radii up to
+        500µm ``ppc=[[100e-6, 8], [500e-6, 2]]``. When using this step option
+        for ``ppc`` the ``r_max_plasma`` argument is ignored. By default
+        ``ppc=2``.
+    dz_fields : float, optional
+        Determines how often the plasma wakefields should be updated.
+        For example, if ``dz_fields=10e-6``, the plasma wakefields are
+        only updated every time the simulation window advances by
+        10 micron. By default ``dz_fields=xi_max-xi_min``, i.e., the
+        length the simulation box.
+    r_max_plasma : float, optional
+        Maximum radial extension of the plasma column. If ``None``, the
+        plasma extends up to the ``r_max`` boundary of the simulation box.
+    p_shape : str, optional
+        Particle shape to be used for the beam charge deposition. Possible
+        values are ``'linear'`` or ``'cubic'`` (default).
+    max_gamma : float, optional
+        Plasma particles whose ``gamma`` exceeds ``max_gamma`` are
+        considered to violate the quasistatic condition and are put at
+        rest (i.e., ``gamma=1.``, ``pr=pz=0.``). By default
+        ``max_gamma=10``.
+    plasma_pusher : str, optional
+        The pusher used to evolve the plasma particles. Possible values
+        are ``'ab2'`` (Adams-Bashforth 2nd order).
+    ion_motion : bool, optional
+        Whether to allow the plasma ions to move. By default, False.
+    ion_mass : float, optional
+        Mass of the plasma ions. By default, the mass of a proton.
+    free_electrons_per_ion : int, optional
+        Number of free electrons per ion. The ion charge is adjusted
+        accordingly to maintain a quasi-neutral plasma (i.e.,
+        ion charge = e * free_electrons_per_ion). By default, 1.
+    laser : LaserPulse, optional
+        Laser driver of the plasma stage.
+    laser_evolution : bool, optional
+        If True (default), the laser pulse is evolved
+        using a laser envelope model. If ``False``, the pulse envelope
+        stays unchanged throughout the computation.
+    laser_envelope_substeps : int, optional
+        Number of substeps of the laser envelope solver per ``dz_fields``.
+        The time step of the envelope solver is therefore
+        ``dz_fields / c / laser_envelope_substeps``.
+    laser_envelope_nxi, laser_envelope_nr : int, optional
+        If given, the laser envelope will run in a grid of size
+        (``laser_envelope_nxi``, ``laser_envelope_nr``) instead
+        of (``n_xi``, ``n_r``). This allows the laser to run in a finer (or
+        coarser) grid than the plasma wake. It is not necessary to specify
+        both parameters. If one of them is not given, the resolution of
+        the plasma grid with be used for that direction.
+    laser_envelope_use_phase : bool, optional
+        Determines whether to take into account the terms related to the
+        longitudinal derivative of the complex phase in the envelope
+        solver.
+    field_diags : list, optional
+        List of fields to save to openpmd diagnostics. By default ['rho', 'E',
+        'B', 'a_mod', 'a_phase'].
+    field_diags : list, optional
+        List of particle quantities to save to openpmd diagnostics. By default
+        [].
+    use_adaptive_grids : bool, optional
+        Whether to use adaptive grids for each particle bunch, instead of the
+        general (n_xi x n_r) grid.
+    adaptive_grid_nr : int or list of int, optional
+        Radial resolution of the adaptive grids. If only one value is given,
+        the same resolution will be used for the adaptive grids of all bunches.
+        Otherwise, a list of values can be given (one per bunch and in the same
+        order as the list of bunches given to the `track` method). If the
+        value is `None`, no adaptive grid will be used for the corresponding
+        bunch, which will instead use the base grid.
+    adaptive_grid_r_max : float or list of float, optional
+        Specify a fixed radial extent for the adaptive grids. If not given,
+        the radial extent of the grids is continuously adapted with the
+        transverse size of the bunches. If only one value is given,
+        the same extent will be used for all adaptive grids.
+        Otherwise, a list of values can be given (one per bunch and in the same
+        order as the list of bunches given to the `track` method). The
+        individual values can be `float` or `None` (in which case, no fixed
+        radial extent is used for the corresponding grid).
+    adaptive_grid_r_lim : float or list of float, optional
+        Specify a limit to the radial extent of the adaptive grids. If not
+        given, the radial extent of the grids is continuously adapted to fit
+        the whole transverse size of the bunches. If only one value is given,
+        the same limit will be used for all adaptive grids.
+        Otherwise, a list of values can be given (one per bunch and in the same
+        order as the list of bunches given to the `track` method). The
+        individual values can be `float` or `None` (in which case, no radial
+        limit is used for the corresponding grid). Bunch particles that escape
+        the grid transversely with deposit to and gather from the base grid
+        (if they haven't escaped from it too).
+    adaptive_grid_diags : list, optional
+        List of fields from the adaptive grids to save to openpmd diagnostics.
+        By default ['E', 'B'].
+
+    References
+    ----------
+    .. [1] P. Baxevanis and G. Stupakov, "Novel fast simulation technique
+        for axisymmetric plasma wakefield acceleration configurations in
+        the blowout regime," Phys. Rev. Accel. Beams 21, 071301 (2018),
+        https://link.aps.org/doi/10.1103/PhysRevAccelBeams.21.071301
+
+    """
+
+    def __init__(
+        self,
+        density_function: Callable[[float, float], float],
+        r_max: float,
+        xi_min: float,
+        xi_max: float,
+        n_r: int,
+        n_xi: int,
+        ppc: Optional[ArrayLike] = 2,
+        dz_fields: Optional[float] = None,
+        r_max_plasma: Optional[float] = None,
+        parabolic_coefficient: Optional[float] = None,
+        p_shape: Optional[str] = "cubic",
+        max_gamma: Optional[float] = 10,
+        plasma_pusher: Optional[str] = "ab2",
+        ion_motion: Optional[bool] = False,
+        ion_mass: Optional[float] = ct.m_p,
+        free_electrons_per_ion: Optional[int] = 1,
+        laser: Optional[LaserPulse] = None,
+        laser_evolution: Optional[bool] = True,
+        laser_envelope_substeps: Optional[int] = 1,
+        laser_envelope_nxi: Optional[int] = None,
+        laser_envelope_nr: Optional[int] = None,
+        laser_envelope_use_phase: Optional[bool] = True,
+        field_diags: Optional[List[str]] = [
+            "rho",
+            "E",
+            "B",
+            "a",
+        ],
+        particle_diags: Optional[List[str]] = [],
+        use_adaptive_grids: Optional[bool] = False,
+        adaptive_grid_nr: Optional[Union[int, List[int]]] = 16,
+        adaptive_grid_r_max: Optional[Union[float, List[float]]] = None,
+        adaptive_grid_r_lim: Optional[Union[float, List[float]]] = None,
+        adaptive_grid_diags: Optional[List[str]] = ["E", "B"],
+    ) -> None:
+        # Checks for backward compatibility.
+        if plasma_pusher not in ["ab2"]:
+            if plasma_pusher in ["rk4", "ab5"]:
+                plasma_pusher = "ab2"
+                warn(
+                    "Plasma pusher {plasma_pusher} has been deprecated. "
+                    "Using 'ab2' pusher instead.",
+                    DeprecationWarning,
+                )
+            else:
+                raise ValueError(
+                    "Plasma pusher {plasma_pusher} not recognized. "
+                    "Possible values are ['ab2']."
+                )
+        if parabolic_coefficient is not None:
+            warn(
+                "The 'parabolic_coefficient' parameter has been deprecated. "
+                "It will still work in order to maintain backward "
+                "compatibility, but the "
+                "new recommended approach is to provide a density function "
+                "that takes `z` and `r` as input parameters.",
+                DeprecationWarning,
+            )
+            parabolic_coefficient = self._get_parabolic_coefficient_fn(
+                parabolic_coefficient
+            )
+        if r_max_plasma is None:
+            r_max_plasma = r_max - r_max / n_r / 2
+        self.r_max_plasma = r_max_plasma
+        self.ppc = np.array(ppc)
+        self.p_shape = p_shape
+        self.max_gamma = max_gamma
+        self.plasma_pusher = plasma_pusher
+        self.ion_motion = ion_motion
+        self.ion_mass = ion_mass
+        self.free_electrons_per_ion = free_electrons_per_ion
+        self.use_adaptive_grids = use_adaptive_grids
+        self.adaptive_grid_nr = adaptive_grid_nr
+        self.adaptive_grid_r_max = adaptive_grid_r_max
+        self.adaptive_grid_r_lim = adaptive_grid_r_lim
+        self.adaptive_grid_diags = adaptive_grid_diags
+        self.bunch_grids: Dict[str, AdaptiveGrid] = {}
+        self._t_reset_bunch_arrays = -1.0
+        if len(self.ppc.shape) in [0, 1]:
+            self.ppc = np.array([[self.r_max_plasma, self.ppc.flatten()[0]]])
+        self.parabolic_coefficient = parabolic_coefficient
+
+        super().__init__(
+            density_function=density_function,
+            r_max=r_max,
+            xi_min=xi_min,
+            xi_max=xi_max,
+            n_r=n_r,
+            n_xi=n_xi,
+            dz_fields=dz_fields,
+            species_rho_diags=True,
+            laser=laser,
+            laser_evolution=laser_evolution,
+            laser_envelope_substeps=laser_envelope_substeps,
+            laser_envelope_nxi=laser_envelope_nxi,
+            laser_envelope_nr=laser_envelope_nr,
+            laser_envelope_use_phase=laser_envelope_use_phase,
+            field_diags=field_diags,
+            particle_diags=particle_diags,
+            model_name="quasistatic_2d_ion",
+        )
+
+
+        # --- one-time init & one-time application flags ---
+        #self._did_init_ic = False              # init hook has been executed?
+        #self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
+        self._initial_condition_done = False
+
+        self.use_SALAME = False
+
+
+
+
+    def _initialize_properties(self, bunches):
+        super()._initialize_properties(bunches)
+        # Add bunch source array (needed if not using adaptive grids).
+        self.b_t_bunch = np.zeros((self.n_xi + 4, self.n_r + 4))
+        self.q_bunch = np.zeros((self.n_xi + 4, self.n_r + 4))
+        self.laser_a2 = np.zeros((self.n_xi + 4, self.n_r + 4))
+        self.fld_arrays = [
+            self.rho,
+            self.rho_e,
+            self.rho_i,
+            self.chi,
+            self.e_r,
+            self.e_z,
+            self.b_t,
+            self.xi_fld,
+            self.r_fld,
+        ]
+
+
+
+
+
+    def _select_witness_bunch(self, bunches: List[ParticleBunch]) -> ParticleBunch:
+        # Option A: by name convention
+        for b in bunches:
+            if b.name.lower() in ["witness", "wit", "beam_witness"]:
+                return b
+        # Option B: assume last bunch is witness in beam-driven case
+        return bunches[-1]
+
+
+
+
+
+
+
+
+
+
+
+#    def _deposit_all_bunches_to_base(self, bunches: List[ParticleBunch]):
+#        #self._reset_bunch_arrays()
+#        for bunch in bunches:
+#            deposit_bunch_charge(
+#                bunch.x, bunch.y, bunch.xi, bunch.q,   # bunch.q uses w*q_species
+#                self.n_p, self.n_r, self.n_xi,
+#                self.r_fld, self.xi_fld,
+#                self.dr, self.dxi,
+#                self.p_shape,
+#                self.q_bunch,
+#            )
+    
+
+
+
+
+
+
+
+
+
+
+
+
+    def _calculate_wakefield(self, bunches: List[ParticleBunch]):
+        # --- initial-condition-only init ---
+#        if not self._did_init_ic:
+#            self._init_initial_condition_once(bunches)
+#            self._did_init_ic = True
+
+
+        radial_density = self._get_radial_density(self.t * ct.c)
+
+        # Get square of laser envelope
+        if self.laser is not None:
+            calculate_laser_a2(self.laser.get_envelope(), self.laser_a2)
+            # If linearly polarized, divide by 2 so that the ponderomotive
+            # force on the plasma particles is correct.
+            if self.laser.polarization == "linear":
+                self.laser_a2 /= 2.0
+            laser_a2 = self.laser_a2
+        else:
+            laser_a2 = None
+
+        # Store plasma history if required by the diagnostics.
+        store_plasma_history = len(self.particle_diags) > 0
+
+
+#        if self.use_SALAME and (not self._initial_condition_done):
+#        #if False:
+#            # 1) build a base-grid deposit of the (initial) bunch distribution
+#            start = time.perf_counter()
+#            #self._deposit_all_bunches_to_base(bunches)
+#
+#
+#
+#            witness = self._select_witness_bunch(bunches)
+#        
+#            # --- build q_fixed = deposit(all non-witness) ---
+#            q_fixed = np.zeros_like(self.q_bunch)
+#            for b in bunches:
+#                if b is witness:
+#                    continue
+#                deposit_bunch_charge(
+#                    b.x, b.y, b.xi, b.q,
+#                    self.n_p, self.n_r, self.n_xi,
+#                    self.r_fld, self.xi_fld,
+#                    self.dr, self.dxi,
+#                    self.p_shape,
+#                    q_fixed,
+#                )
+#        
+#            # --- build q_var = deposit(witness only) ---
+#            q_var = np.zeros_like(self.q_bunch)
+#            deposit_bunch_charge(
+#                witness.x, witness.y, witness.xi, witness.q,
+#                self.n_p, self.n_r, self.n_xi,
+#                self.r_fld, self.xi_fld,
+#                self.dr, self.dxi,
+#                self.p_shape,
+#                q_var,
+#            )
+#        
+#            # store total into self.q_bunch for consistency (optional)
+#            self.q_bunch[:] = q_fixed + q_var
+
+
+
+
+        if self.use_SALAME and (not self._initial_condition_done):
+
+
+
+            # Initialize empty lists with correct type so that numba can use
+            # them even if there are no bunch sources.
+            bunch_source_arrays = []
+            bunch_source_xi_indices = []
+            bunch_source_metadata = []
+
+            start = time.perf_counter()
+            witness = self._select_witness_bunch(bunches)
+
+            if self.use_adaptive_grids:
+
+                
+                # Run SALAME on adaptive grid
+                # Build adaptive-grid parameter lists exactly as in normal branch.
+                if isinstance(self.adaptive_grid_nr, list):
+                    assert len(self.adaptive_grid_nr) == len(bunches), (
+                        "Several resolutions for the adaptive grids have been "
+                        "given, but they do not match the number of tracked bunches"
+                    )
+                    nr_grids = self.adaptive_grid_nr
+                else:
+                    nr_grids = [self.adaptive_grid_nr] * len(bunches)
+
+                if isinstance(self.adaptive_grid_r_max, list):
+                    assert len(self.adaptive_grid_r_max) == len(bunches), (
+                        "Several `r_max` for the adaptive grids have been given, "
+                        "but they do not match the number of tracked bunches"
+                    )
+                    r_max_grids = self.adaptive_grid_r_max
+                else:
+                    r_max_grids = [self.adaptive_grid_r_max] * len(bunches)
+
+                if isinstance(self.adaptive_grid_r_lim, list):
+                    assert len(self.adaptive_grid_r_lim) == len(bunches), (
+                        "Several `r_lim` for the adaptive grids have been given, "
+                        "but they do not match the number of tracked bunches"
+                    )
+                    r_lim_grids = self.adaptive_grid_r_lim
+                else:
+                    r_lim_grids = [self.adaptive_grid_r_lim] * len(bunches)
+
+                for r_lim, r_max in zip(r_lim_grids, r_max_grids):
+                    if r_lim is not None and r_max is not None and r_max > r_lim:
+                        raise ValueError("`r_max` cannot be larger than `r_lim`")
+
+                # Create/reuse grids exactly like normal adaptive-grid branch.
+                for i, bunch in enumerate(bunches):
+                    if nr_grids[i] is not None:
+                        #if bunch.name not in self.bunch_grids:
+                        self.bunch_grids[bunch.name] = AdaptiveGrid(
+                            bunch.x,
+                            bunch.y,
+                            bunch.xi,
+                            bunch.w,
+                            bunch.name,
+                            nr_grids[i],
+                            self.n_xi,
+                            self.xi_fld,
+                            r_max_grids[i],
+                            r_lim_grids[i],
+                        )
+
+                #if witness.name not in self.bunch_grids:
+                #    raise ValueError(
+                #        "SALAME is enabled, but witness does not have an adaptive grid."
+                #    )
+
+                # Deposit witness using the adaptive-grid API.
+                witness_grid = self.bunch_grids[witness.name]
+                #all_deposited = witness_grid.calculate_bunch_source(
+                #    witness, self.n_p, self.p_shape
+                #)
+                
+                #print(f"{witness_grid.q_bunch}")
+
+
+
+                witness_grid.b_t_bunch[:] = 0.0
+                witness_grid.q_bunch[:] = 0.0
+                all_deposited = deposit_bunch_charge(
+                    witness.x,
+                    witness.y,
+                    witness.xi,
+                    witness.q,
+                    self.n_p,
+                    witness_grid.nr - witness_grid.nr_border,
+                    witness_grid.nxi,
+                    witness_grid.r_grid,
+                    witness_grid.xi_grid,
+                    witness_grid.dr,
+                    witness_grid.dxi,
+                    self.p_shape,
+                    witness_grid.q_bunch,
+                )
+
+                #print(f"{witness_grid.q_bunch}")
+
+
+
+
+                print(f"SALAME witness adaptive deposit: {all_deposited=}")
+
+                # Witness-only variable part from witness adaptive grid.
+                q_var = witness_grid.q_bunch.copy()
+
+
+
+                print(f"{q_var.shape=}")
+
+
+                ## witness-grid source for q_var metadata
+                #q_var_xi_indices = witness_grid.i_grid.copy()
+                #q_var_metadata = (
+                #    np.array(
+                #        [
+                #            witness_grid.r_min_cell,
+                #            witness_grid.r_max_cell_guard,
+                #            witness_grid.dr,
+                #        ]
+                #    )
+                #    / s_d
+                #)
+
+
+
+
+                # ------------------------------------------
+                # q_fixed: each non-witness bunch deposited on
+                # its own adaptive grid using calculate_bunch_source
+                # ------------------------------------------
+                #q_fixed_arrays = []
+                #q_fixed_xi_indices = []
+                #q_fixed_metadata = []
+
+                s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+
+                for i, bunch in enumerate(bunches):
+                    #if nr_grids[i] is not None:
+                #for bunch in bunches_with_grid:
+                    if bunch is witness:
+                        continue
+
+                    grid = self.bunch_grids[bunch.name]
+                    all_deposited = grid.calculate_bunch_source(
+                        bunch, self.n_p, self.p_shape
+                    )
+                    
+
+                    #grid.b_t_bunch[:] = 0.0
+                    #grid.q_bunch[:] = 0.0
+                    #all_deposited = deposit_bunch_charge(
+                    #    bunch.x,
+                    #    bunch.y,
+                    #    bunch.xi,
+                    #    bunch.q,
+                    #    self.n_p,
+                    #    grid.nr - grid.nr_border,
+                    #    grid.nxi,
+                    #    grid.r_grid,
+                    #    grid.xi_grid,
+                    #    grid.dr,
+                    #    grid.dxi,
+                    #    self.p_shape,
+                    #    grid.q_bunch,
+                    #)
+
+                    #calculate_bunch_source(grid.q_bunch, grid.nr, grid.nxi, grid.b_t_bunch)
+
+
+                    bunch_source_arrays.append(grid.b_t_bunch)
+                    bunch_source_xi_indices.append(grid.i_grid)
+                    bunch_source_metadata.append(
+                        np.array([grid.r_min_cell, grid.r_max_cell_guard, grid.dr]) / s_d
+                    )
+
+
+                    print(f"SALAME fixed deposit {bunch.name}: {all_deposited=}")
+
+
+
+
+
+                    if not all_deposited:
+                        #for i, bunch in enumerate(bunches):
+                        #if bunch is witness:
+                        #    continue
+                        deposit_bunch_charge(
+                            bunch.x,
+                            bunch.y,
+                            bunch.xi,
+                            bunch.q,
+                            self.n_p,
+                            self.n_r,
+                            self.n_xi,
+                            self.r_fld,
+                            self.xi_fld,
+                            self.dr,
+                            self.dxi,
+                            self.p_shape,
+                            self.q_bunch,
+                            r_min_deposit=grid.r_max,
+                            )
+
+
+
+
+
+
+                        calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+                        bunch_source_arrays.append(self.b_t_bunch)
+                        bunch_source_xi_indices.append(np.arange(self.n_xi))
+                        bunch_source_metadata.append(
+                            np.array(
+                                [
+                                    self.r_fld[0],
+                                    self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                                    self.dr,
+                                ]
+                            )
+                            / s_d
+                        )
+
+                    #print(f"{grid.b_t_bunch=}")
+                    print(f"{bunch_source_arrays=}")
+                    print(f"{bunch_source_xi_indices=}")
+                       
+                       #q_fixed_arrays.append(grid.q_bunch.copy())
+                        #q_fixed_xi_indices.append(grid.i_grid.copy())
+                        #q_fixed_metadata.append(
+                        #np.array([grid.r_min_cell, grid.r_max_cell_guard, grid.dr]) / s_d)
+                    
+
+                # Optional: bunches without adaptive grid
+                # If you truly do not want any base-grid deposition here,
+                ## just leave them out or raise.
+                #if bunches_without_grid:
+                #    raise ValueError(
+                #        "SALAME adaptive-grid mode currently expects all non-witness "
+                #        "bunches contributing to q_fixed to have adaptive grids."
+                #    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                #print(f"{q_var.shape}")
+                #print(f"{q_var_xi_indices}")
+                #print(f"{q_fixed_arrays}")
+                #print(f"{q_fixed_xi_indices}")
+
+
+
+
+                print("Done bunch deposition for SALAME")
+
+
+
+
+
+                # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
+                #Adaptive grid:
+                #[ 2 guards | physical cells + 2 border cells | 2 guards ]       
+
+                print(f"{bunch_source_arrays=}")
+
+                beamloading_initial_condition_adaptive_grids(
+                    ag_i_grid=witness_grid.i_grid,
+                    ag_r_grid=witness_grid.r_grid,
+                    ag_xi_grid=witness_grid.xi_grid,
+                    ag_dr=witness_grid.dr,
+                    ag_dxi=witness_grid.dxi,
+                    ag_nr=witness_grid.nr,
+                    ag_nxi=witness_grid.nxi,
+                    ag_r_max=witness_grid.r_max,
+                    ag_xi_min=witness_grid.xi_min,
+                    ag_xi_max=witness_grid.xi_max,
+                    ag_psi_grid=witness_grid.psi_grid,
+                    ag_bt_grid=witness_grid.b_t,
+                
+                    chi=self.chi,
+                    fld_arrays=self.fld_arrays,
+                
+                    n_p=self.n_p,
+                    ppc=self.ppc,
+                    r_max_plasma=self.r_max_plasma,
+                    p_shape=self.p_shape,
+                    max_gamma=self.max_gamma,
+                    plasma_pusher=self.plasma_pusher,
+                    ion_motion=self.ion_motion,
+                    ion_mass=self.ion_mass,
+                    free_electrons_per_ion=self.free_electrons_per_ion,
+                
+                    laser_a2=laser_a2,
+                    radial_density=radial_density,
+                
+                    bunch_source_arrays=bunch_source_arrays,
+                    bunch_source_xi_indices=bunch_source_xi_indices,
+                    bunch_source_metadata=bunch_source_metadata,
+                
+                    bunch=witness,
+                    q_var=q_var,
+                )
+
+
+
+                #beamloading_initial_condition_adaptive_grids(
+                #    #q_bunch=self.q_bunch,
+                #    #b_t_bunch=self.b_t_bunch,
+                #    i_grid=witness_grid.i_grid
+                #    r_max_cell_guard=witness_grid.r_max_cell_guard
+                #    r_min_cell=witness_grid.r_min_cell
+                #    nr_border=witness_grid.nr_border
+
+                #    
+                #    chi=self.chi,
+                #    r_fld=witness_grid.r_grid, # physcial cells + 2 border cells outside
+                #    xi_fld=witness_grid.xi_grid,
+                #    dr=witness_grid.dr, # to check,
+                #    dxi=self.dxi,
+                #    n_r=witness_grid.nr, # physical cells + 2 border outside. 
+                #    n_xi=witness_grid.nxi,
+        
+                #    n_p=self.n_p,
+                #    ppc=self.ppc,
+                #    r_max=witness_grid.r_max, # physical cells max + dr/2 to check
+                #    xi_min=witness_grid.xi_min,
+                #    xi_max=witness_grid.xi_max,
+                #    r_max_plasma=self.r_max_plasma,
+                #    p_shape=self.p_shape,
+                #    max_gamma=self.max_gamma,
+                #    plasma_pusher=self.plasma_pusher,
+                #    ion_motion=self.ion_motion,
+                #    ion_mass=self.ion_mass,
+                #    free_electrons_per_ion=self.free_electrons_per_ion,
+                #    #field_diags=self.field_diags,
+                #    fld_arrays=self.fld_arrays, # to check
+        
+                #    laser_a2=laser_a2,
+                #    radial_density=radial_density,
+                #    bunch_source_arrays=bunch_source_arrays, 
+                #    bunch_source_xi_indices=bunch_source_xi_indices,
+                #    bunch_source_metadata=bunch_source_metadata,
+                #    #bunch=bunches[0],                # target bunch you want to shape
+                #    bunch=witness,  # the only bunch whose weights get updated
+ 
+                #    # NEW: pass fixed + variable deposits separately
+                #    #q_fixed=q_fixed,
+                #    
+                #    q_var=q_var,
+
+
+
+                #    )
+
+
+
+
+
+
+
+
+
+
+            else:
+
+
+                # Run SALAME on base grid
+
+
+                # --- build q_var = deposit(witness only) ---
+                q_var = np.zeros_like(self.q_bunch)
+                deposit_bunch_charge(
+                    witness.x, witness.y, witness.xi, witness.q,
+                    self.n_p, self.n_r, self.n_xi,
+                    self.r_fld, self.xi_fld,
+                    self.dr, self.dxi,
+                    self.p_shape,
+                    q_var,
+                )
+
+
+
+
+                print(f"{q_var.shape=}")
+
+
+
+
+                # --- build q_fixed = deposit(all non-witness) ---
+                q_fixed = np.zeros_like(self.q_bunch)
+                for b in bunches:
+                    if b is witness:
+                        continue
+                    deposit_bunch_charge(
+                        b.x, b.y, b.xi, b.q,
+                        self.n_p, self.n_r, self.n_xi,
+                        self.r_fld, self.xi_fld,
+                        self.dr, self.dxi,
+                        self.p_shape,
+                        q_fixed,
+                    )
+
+
+
+                s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+                
+
+                calculate_bunch_source(q_fixed, self.n_r, self.n_xi, self.b_t_bunch)
+                bunch_source_arrays.append(self.b_t_bunch)
+                bunch_source_xi_indices.append(np.arange(self.n_xi))
+                bunch_source_metadata.append(
+                    np.array(
+                        [
+                            self.r_fld[0],
+                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                            self.dr,
+                        ]
+                    )
+                    / s_d
+                )
+
+
+                print(f"{bunch_source_arrays=}")
+                print(f"{bunch_source_xi_indices=}")
+
+
+
+
+
+
+
+
+                print("Done bunch deposition for SALAME")
+
+
+
+                # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
+                beamloading_initial_condition(
+                    q_bunch=self.q_bunch,
+                    b_t_bunch=self.b_t_bunch,
+                    chi=self.chi,
+                    r_fld=self.r_fld,
+                    xi_fld=self.xi_fld,
+                    dr=self.dr,
+                    dxi=self.dxi,
+                    n_r=self.n_r,
+                    n_xi=self.n_xi,
+                    n_p=self.n_p,
+                    ppc=self.ppc,
+                    r_max=self.r_max,
+                    xi_min=self.xi_min,
+                    xi_max=self.xi_max,
+                    r_max_plasma=self.r_max_plasma,
+                    p_shape=self.p_shape,
+                    max_gamma=self.max_gamma,
+                    plasma_pusher=self.plasma_pusher,
+                    ion_motion=self.ion_motion,
+                    ion_mass=self.ion_mass,
+                    free_electrons_per_ion=self.free_electrons_per_ion,
+                    field_diags=self.field_diags,
+                    fld_arrays=self.fld_arrays,
+                    laser_a2=laser_a2,
+                    radial_density=radial_density,
+                    bunch_source_arrays=[],  # let the function init its own base slot
+                    bunch_source_xi_indices=[],
+                    bunch_source_metadata=[],
+                    # bunch=bunches[0],                # target bunch you want to shape
+                    bunch=witness,  # the only bunch whose weights get updated
+                    # NEW: pass fixed + variable deposits separately
+                    q_fixed=q_fixed,
+                    q_var=q_var,
+                )
+
+
+
+
+
+
+
+
+
+
+
+
+        
+
+
+            end = time.perf_counter()
+            print(f"Elapsed: {end - start:.6f} s")
+
+            #np.savez('bunch_after_SALAME.npz', w=bunches[0].w)
+
+
+
+
+
+        # Initialize empty lists with correct type so that numba can use
+        # them even if there are no bunch sources.
+        bunch_source_arrays = []
+        bunch_source_xi_indices = []
+        bunch_source_metadata = []
+
+        # Calculate bunch sources and create adaptive grids if needed.
+        s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+        deposit_outliers_on_base_grid = False
+        if self.use_adaptive_grids:
+            store_plasma_history = True
+            # Get radial grid resolution.
+            if isinstance(self.adaptive_grid_nr, list):
+                assert len(self.adaptive_grid_nr) == len(bunches), (
+                    "Several resolutions for the adaptive grids have been "
+                    "given, but they do not match the number of tracked "
+                    "bunches"
+                )
+                nr_grids = self.adaptive_grid_nr
+            else:
+                nr_grids = [self.adaptive_grid_nr] * len(bunches)
+            # Get radial extent.
+            if isinstance(self.adaptive_grid_r_max, list):
+                assert len(self.adaptive_grid_r_max) == len(bunches), (
+                    "Several `r_max` for the adaptive grids have been "
+                    "given, but they do not match the number of tracked "
+                    "bunches"
+                )
+                r_max_grids = self.adaptive_grid_r_max
+            else:
+                r_max_grids = [self.adaptive_grid_r_max] * len(bunches)
+            # Get radial extent limit.
+            if isinstance(self.adaptive_grid_r_lim, list):
+                assert len(self.adaptive_grid_r_lim) == len(bunches), (
+                    "Several `r_lim` for the adaptive grids have been "
+                    "given, but they do not match the number of tracked "
+                    "bunches"
+                )
+                r_lim_grids = self.adaptive_grid_r_lim
+            else:
+                r_lim_grids = [self.adaptive_grid_r_lim] * len(bunches)
+            # Check that the given extents are not larger than the limits.
+            for r_lim, r_max in zip(r_lim_grids, r_max_grids):
+                if r_lim is not None and r_max is not None:
+                    if r_max > r_lim:
+                        raise ValueError("`r_max` cannot be larger than `r_lim`")
+            # Create adaptive grids for each bunch.
+            bunches_with_grid: List[ParticleBunch] = []
+            bunches_without_grid: List[ParticleBunch] = []
+            for i, bunch in enumerate(bunches):
+                if nr_grids[i] is not None:
+                    bunches_with_grid.append(bunch)
+                    if bunch.name not in self.bunch_grids:
+                        self.bunch_grids[bunch.name] = AdaptiveGrid(
+                            bunch.x,
+                            bunch.y,
+                            bunch.xi,
+                            bunch.w,
+                            bunch.name,
+                            nr_grids[i],
+                            self.n_xi,
+                            self.xi_fld,
+                            r_max_grids[i],
+                            r_lim_grids[i],
+                        )
+                else:
+                    bunches_without_grid.append(bunch)
+            # Calculate bunch sources at each grid.
+            for bunch in bunches_with_grid:
+                grid = self.bunch_grids[bunch.name]
+                all_deposited = grid.calculate_bunch_source(
+                    bunch, self.n_p, self.p_shape
+                )
+
+
+
+
+                bunch_source_arrays.append(grid.b_t_bunch)
+                bunch_source_xi_indices.append(grid.i_grid)
+                bunch_source_metadata.append(
+                    np.array([grid.r_min_cell, grid.r_max_cell_guard, grid.dr]) / s_d
+                )
+                if not all_deposited:
+                    self._reset_bunch_arrays()
+                    deposit_bunch_charge(
+                        bunch.x,
+                        bunch.y,
+                        bunch.xi,
+                        bunch.q,
+                        self.n_p,
+                        self.n_r,
+                        self.n_xi,
+                        self.r_fld,
+                        self.xi_fld,
+                        self.dr,
+                        self.dxi,
+                        self.p_shape,
+                        self.q_bunch,
+                        r_min_deposit=grid.r_max,
+                    )
+                    deposit_outliers_on_base_grid = True
+
+        else:
+            bunches_without_grid = bunches
+        # If not using adaptive grids, add all sources to the same array.
+        if bunches_without_grid or deposit_outliers_on_base_grid:
+            print("bunch w/o grid or deposit outliers")
+            #if self._initial_condition_done:
+            if True:
+                if not self._initial_condition_done:
+                #if False:
+                    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
+
+                self._reset_bunch_arrays()
+                for bunch in bunches_without_grid:
+                    deposit_bunch_charge(
+                        bunch.x,
+                        bunch.y,
+                        bunch.xi,
+                        bunch.q,
+                        self.n_p,
+                        self.n_r,
+                        self.n_xi,
+                        self.r_fld,
+                        self.xi_fld,
+                        self.dr,
+                        self.dxi,
+                        self.p_shape,
+                        self.q_bunch,
+                    )
+
+                if not self._initial_condition_done:
+                #if True:
+                    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
+
+
+
+                #data = np.load('q_bunch_after_SALAME.npz')
+                #self.q_bunch = data['q_bunch']
+
+
+
+                #This block of code is to test the inverse_deposit_3d distribution function
+                #This block of code is to test the inverse_deposit_3d distribution function
+                #This block of code is to test the inverse_deposit_3d distribution function
+                #if not self._initial_condition_done:
+#                if False:
+#                    #data = np.load('bunch_after_SALAME.npz')
+#                    #bunches[0].w = data['w']
+#                    print(bunches[0].w)
+#                    
+#                    self.b_t_bunch[:] = 0.0
+#                    self.q_bunch[:] = 0.0
+#                    for bunch in bunches_without_grid:
+#                        deposit_bunch_charge(
+#                            bunch.x,
+#                            bunch.y,
+#                            bunch.xi,
+#                            bunch.q,
+#                            self.n_p,
+#                            self.n_r,
+#                            self.n_xi,
+#                            self.r_fld,
+#                            self.xi_fld,
+#                            self.dr,
+#                            self.dxi,
+#                            self.p_shape,
+#                            self.q_bunch,
+#                        )
+#
+#
+#
+#                    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
+#
+#
+#
+#                    q_new, _ = inverse_deposit_3d_distribution(
+#                        bunches[0].xi, bunches[0].x, bunches[0].y,
+#                        self.xi_fld[0], self.r_fld[0],
+#                        self.n_xi, self.n_r, self.dxi, self.dr,
+#                        self.q_bunch,
+#                        p_shape=self.p_shape,
+#                        use_ruyten=True,
+#                    )
+#                    
+#                    
+#                    # 0) Make a grid that counts macroparticles (smoothed)
+#                    count_grid = np.zeros_like(self.q_bunch)
+#                    
+#                    ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
+#                    
+#                    # Deposit ones (NO k here; use deposit_3d_distribution directly)
+#                    deposit_3d_distribution(
+#                        bunches[0].xi, bunches[0].x, bunches[0].y,
+#                        ones,
+#                        self.xi_fld[0],
+#                        self.r_fld[0],
+#                        self.n_xi,
+#                        self.n_r,
+#                        self.dxi,
+#                        self.dr,
+#                        count_grid,
+#                        p_shape=self.p_shape,
+#                        use_ruyten=True,
+#                    )
+#
+#                    count_p, _ = inverse_deposit_3d_distribution(
+#                        bunches[0].xi, bunches[0].x, bunches[0].y,
+#                        self.xi_fld[0], self.r_fld[0],
+#                        self.n_xi, self.n_r, self.dxi, self.dr,
+#                        count_grid,
+#                        p_shape=self.p_shape,
+#                        use_ruyten=True,
+#                    )
+#
+#
+#
+#                    k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
+#                    
+#                    # convert back to charge-like quantity
+#                    q_est = q_new / k
+#
+#                    eps = 1e-30
+#                    w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
+#
+#                    #print(np.abs(q_est / bunches[0].q_species))
+#                    #print(count_p)
+#
+#                    bunches[0].w =  w_est
+#                    print(w_est)
+#
+#
+#
+#                    #self._reset_bunch_arrays()
+#                    self.b_t_bunch[:] = 0.0
+#                    self.q_bunch[:] = 0.0
+#                    for bunch in bunches_without_grid:
+#                        deposit_bunch_charge(
+#                            bunch.x,
+#                            bunch.y,
+#                            bunch.xi,
+#                            bunch.q,
+#                            self.n_p,
+#                            self.n_r,
+#                            self.n_xi,
+#                            self.r_fld,
+#                            self.xi_fld,
+#                            self.dr,
+#                            self.dxi,
+#                            self.p_shape,
+#                            self.q_bunch,
+#                        )
+#
+#                    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
+#
+#
+
+
+
+
+
+
+
+#            # ---- beam-loading only on first solve ----
+#            if self._apply_beamloading_this_solve:
+#                print(self.xi_fld)
+#                print(self.dxi)
+#                print([np.max(self.q_bunch),np.min(self.q_bunch)])
+#    
+#    
+#                # ---- INSERT beam-loading shaper HERE ----
+#                # Example: increase witness charge by 5% between xi=-200um and -100um
+#                self._apply_beamloading_once_on_deposited_qbunch()
+#                #self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
+#                #                                          scale=1, smooth=0)
+#                print([np.max(self.q_bunch),np.min(self.q_bunch)])
+
+
+
+
+
+#            print(bunches[0].w)
+#            if not self._initial_condition_done:
+#                # ---- INITIAL CONDITION ONLY ----
+#                start = time.perf_counter()
+#                #self._beamloading_initial_condition(
+#                #    laser_a2,
+#                #    radial_density,
+#                #    store_plasma_history,
+#                #    bunch_source_arrays,
+#                #    bunch_source_xi_indices,
+#                #    bunch_source_metadata,
+#                #    bunches
+#                #    )
+#
+#
+#                
+#                beamloading_initial_condition(
+#                    # --- grid arrays/geometry (base grid) ---
+#                    q_bunch=self.q_bunch,
+#                    b_t_bunch=self.b_t_bunch,
+#                    chi=self.chi,
+#                    r_fld=self.r_fld,
+#                    xi_fld=self.xi_fld,
+#                    dr=self.dr,
+#                    dxi=self.dxi,
+#                    n_r=self.n_r,
+#                    n_xi=self.n_xi,
+#                
+#                    # --- solver/plasma params ---
+#                    n_p=self.n_p,
+#                    ppc=self.ppc,
+#                    r_max=self.r_max,
+#                    xi_min=self.xi_min,
+#                    xi_max=self.xi_max,
+#                    r_max_plasma=self.r_max_plasma,
+#                    p_shape=self.p_shape,
+#                    max_gamma=self.max_gamma,
+#                    plasma_pusher=self.plasma_pusher,
+#                    ion_motion=self.ion_motion,
+#                    ion_mass=self.ion_mass,
+#                    free_electrons_per_ion=self.free_electrons_per_ion,
+#                    field_diags=self.field_diags,
+#                    fld_arrays=self.fld_arrays,
+#                
+#                    # --- runtime ---
+#                    laser_a2=laser_a2,
+#                    radial_density=radial_density,
+#                    bunch_source_arrays=bunch_source_arrays,
+#                    bunch_source_xi_indices=bunch_source_xi_indices,
+#                    bunch_source_metadata=bunch_source_metadata,
+#                    bunch=bunches[0],
+#                )
+#                
+#
+#
+#
+#                end = time.perf_counter()
+#                print(f"Elapsed: {end - start:.6f} s")
+#
+#
+#            print(bunches[0].w)
+#            
+#
+#            #self.b_t_bunch[:] = 0.0
+#            #self.b_t_bunch=[]
+#            bunch_source_arrays = []
+#            bunch_source_xi_indices = []
+#            bunch_source_metadata = []
+#
+#
+
+
+
+
+
+            #if self._initial_condition_done:
+            if True:
+                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+                bunch_source_arrays.append(self.b_t_bunch)
+                bunch_source_xi_indices.append(np.arange(self.n_xi))
+                bunch_source_metadata.append(
+                    np.array(
+                        [
+                            self.r_fld[0],
+                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                            self.dr,
+                        ]
+                    )
+                    / s_d
+                )
+
+
+
+
+
+
+#            if True:
+#                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+#                if len(bunch_source_arrays) == 0:
+#                    bunch_source_arrays.append(self.b_t_bunch)
+#                    bunch_source_xi_indices.append(np.arange(self.n_xi))
+#                    bunch_source_metadata.append(
+#                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
+#                    )
+#                else:
+#                    # overwrite base-grid source (don’t append duplicates)
+#                    bunch_source_arrays[0] = self.b_t_bunch
+#
+
+
+
+
+
+        if True:
+
+
+            print(f"{bunch_source_arrays=}")
+
+            # Calculate rho only if requested in the diagnostics.
+            calculate_rho = any("rho" in diag for diag in self.field_diags)
+    
+            #print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
+            # Calculate plasma wakefields
+            self.pp = calculate_wakefields(
+                laser_a2,
+                self.r_max,
+                self.xi_min,
+                self.xi_max,
+                self.n_r,
+                self.n_xi,
+                self.ppc,
+                self.n_p,
+                r_max_plasma=self.r_max_plasma,
+                radial_density=radial_density,
+                p_shape=self.p_shape,
+                max_gamma=self.max_gamma,
+                plasma_pusher=self.plasma_pusher,
+                ion_motion=self.ion_motion,
+                ion_mass=self.ion_mass,
+                free_electrons_per_ion=self.free_electrons_per_ion,
+                fld_arrays=self.fld_arrays,
+                bunch_source_arrays=bunch_source_arrays,
+                bunch_source_xi_indices=bunch_source_xi_indices,
+                bunch_source_metadata=bunch_source_metadata,
+                store_plasma_history=store_plasma_history,
+                calculate_rho=calculate_rho,
+                particle_diags=self.particle_diags,
+            )
+    
+    
+    
+    #        if self._apply_beamloading_this_solve:
+    #            E_z = self.fld_arrays[5]
+    #            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
+    #            print(E_z_phys[:,0])
+    
+    
+    
+    
+            # Add bunch density to total density.
+            if calculate_rho:
+                rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
+                self.rho[2:-2, 2:-2] += rho_bunch
+    
+            # Calculate fields on adaptive grids.
+            if self.use_adaptive_grids:
+                for _, grid in self.bunch_grids.items():
+                    grid.calculate_fields(self.n_p, self.pp)
+    
+    #        # After first wake solve, disable one-time beam-loading effect
+    #        if self._apply_beamloading_this_solve:
+    #            self._apply_beamloading_this_solve = False
+    
+    
+        # After first wake solve, disable one-time beam-loading effect
+        self._initial_condition_done = True
+
+
+    def _reset_bunch_arrays(self):
+        """Reset to zero the bunch arrays of the base grid."""
+        if self.t > self._t_reset_bunch_arrays:
+            self.b_t_bunch[:] = 0.0
+            self.q_bunch[:] = 0.0
+            self._t_reset_bunch_arrays = self.t
+
+    def _get_radial_density(self, z_current):
+        """Get radial density profile function"""
+
+        def radial_density(r):
+            n_p = self.density_function(z_current, r)
+            if self.parabolic_coefficient is not None:
+                pc = self.parabolic_coefficient(z_current)
+                n_p = n_p + n_p * pc * r**2
+            return n_p
+
+        return radial_density
+
+    def _get_parabolic_coefficient_fn(self, parabolic_coefficient):
+        """Get parabolic_coefficient profile function"""
+        if isinstance(parabolic_coefficient, float):
+
+            def uniform_parabolic_coefficient(z):
+                return np.ones_like(z) * parabolic_coefficient
+
+            return uniform_parabolic_coefficient
+        elif callable(parabolic_coefficient):
+            return parabolic_coefficient
+        else:
+            raise ValueError(
+                "Type {} not supported for parabolic_coefficient.".format(
+                    type(parabolic_coefficient)
+                )
+            )
+
+    def _gather(self, x, y, z, t, ex, ey, ez, bx, by, bz, bunch_name):
+        # If using adaptive grids, gather fields from them.
+        if bunch_name in self.bunch_grids:
+            grid = self.bunch_grids[bunch_name]
+            grid.update_if_needed(x, y, z, self.n_p, self.pp)
+            all_gathered = grid.gather_fields(x, y, z, ex, ey, ez, bx, by, bz)
+            # If not all particles managed to gather from adaptive grid (for
+            # example, because they escaped from it), try to gather from the
+            # base grid.
+            if not all_gathered:
+                gather_main_fields_cyl_linear(
+                    self.e_r,
+                    self.e_z,
+                    self.b_t,
+                    self.xi_fld[0],
+                    self.xi_fld[-1],
+                    self.r_fld[0],
+                    self.r_fld[-1],
+                    self.dxi,
+                    self.dr,
+                    x,
+                    y,
+                    z,
+                    ex,
+                    ey,
+                    ez,
+                    bx,
+                    by,
+                    bz,
+                    r_min_gather=grid.r_max_cell,
+                )
+
+        # Otherwise, use base implementation.
+        else:
+            super()._gather(x, y, z, t, ex, ey, ez, bx, by, bz, bunch_name)
+
+    def _get_openpmd_diagnostics_data(self, global_time):
+        diag_data = super()._get_openpmd_diagnostics_data(global_time)
+        # Add fields from adaptive grids to openpmd diagnostics.
+        if self.use_adaptive_grids:
+            for _, grid in self.bunch_grids.items():
+                grid_data = grid.get_openpmd_data(global_time, self.adaptive_grid_diags)
+                diag_data["fields"] += grid_data["fields"]
+                for field in grid_data["fields"]:
+                    diag_data[field] = grid_data[field]
+        # Add plasma particles to openpmd diagnostics.
+        particle_diags = self._get_plasma_particle_diagnostics(global_time)
+        diag_data = {**diag_data, **particle_diags}
+        diag_data["species"] = list(particle_diags.keys())
+        return diag_data
+
+    def _get_plasma_particle_diagnostics(self, global_time):
+        """Return dict with plasma particle diagnostics."""
+        diag_dict = {}
+        elec_name = "plasma_electrons"
+        ions_name = "plasma_ions"
+        if len(self.particle_diags) > 0:
+            for name, hist in zip((elec_name, ions_name), self.pp):
+                s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
+
+                if name == elec_name:
+                    diag_dict[name] = {
+                        "q": -ct.e,
+                        "m": ct.m_e,
+                        "geometry": "rz",
+                    }
+                else:
+                    diag_dict[name] = {
+                        "q": ct.e * self.free_electrons_per_ion,
+                        "m": self.ion_mass,
+                        "geometry": "rz",
+                    }
+                diag_dict[name]["name"] = name
+                if "r" in self.particle_diags:
+                    diag_dict[name]["r"] = hist["r_hist"] * s_d
+                if "z" in self.particle_diags:
+                    diag_dict[name]["z"] = hist["xi_hist"] * s_d + self.xi_max
+                    diag_dict[name]["z_off"] = global_time * ct.c
+                if "pr" in self.particle_diags:
+                    diag_dict[name]["pr"] = (
+                        hist["pr_hist"] * diag_dict[name]["mass"] * ct.c
+                    )
+                if "pz" in self.particle_diags:
+                    diag_dict[name]["pz"] = (
+                        hist["pz_hist"] * diag_dict[name]["mass"] * ct.c
+                    )
+                if "w" in self.particle_diags:
+                    diag_dict[name]["w"] = hist["w_hist"] * (
+                        self.n_p
+                        if name == elec_name
+                        else self.n_p / self.free_electrons_per_ion
+                    )
+                if "r_to_x" in self.particle_diags:
+                    diag_dict[name]["r_to_x"] = hist["r_to_x_hist"]
+                if "id" in self.particle_diags:
+                    diag_dict[name]["id"] = hist["id_hist"]
+
+        return diag_dict

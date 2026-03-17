@@ -1,10 +1,31 @@
 """
-This module implements the methods for calculating the plasma wakefields
-using the 2D r-z reduced model from P. Baxevanis and G. Stupakov.
+Adaptive-grid helper solver for SALAME / beam-loading initial-condition
+iteration in the Baxevanis-Stupakov quasi-static model.
 
-See https://journals.aps.org/prab/abstract/10.1103/PhysRevAccelBeams.21.071301
-for the full details about this model.
+Design goal
+-----------
+Keep the plasma evolution semantics identical to the working base-grid solver:
+- build cache "ready for slice k"
+- trial-evolve k..k-2 to get Ez(k-1)
+- commit one fixed-source slice at a time
+
+but project psi / b_theta onto a single target adaptive grid.
+
+Important conventions
+---------------------
+- Plasma evolution and laser gathering always march on GLOBAL base-grid slice
+  indices `slice_i`.
+- `ag_i_grid` stores the GLOBAL slice indices covered by the target adaptive
+  grid, with length `ag_nxi`.
+- `ag_r_grid` contains the adaptive-grid radial nodes WITHOUT guard cells but
+  INCLUDING the 2 border cells used by the AG machinery.
+- `ag_psi_grid`, `ag_bt_grid` include 2 guard cells on each side and therefore
+  have shape `(ag_nxi+4, ag_nr+4)`.
+
+This file intentionally keeps the debug prints.
 """
+
+from __future__ import annotations
 
 import numpy as np
 import scipy.constants as ct
@@ -16,28 +37,17 @@ from .plasma_particles import (
     pp_gather_laser_sources,
     pp_gather_bunch_sources,
     pp_calculate_fields,
-    pp_calculate_psi_at_grid,
-    pp_calculate_b_theta_at_grid,
     pp_calculate_weights,
     pp_deposit_rho,
     pp_deposit_chi,
     pp_store_current_step,
     pp_evolve,
-    pp_get_history,
 )
-from .utils import longitudinal_gradient, radial_gradient
-
-from wake_t.utilities.numba import njit_serial
-
 from .plasma_particle_container import PlasmaParticleContainer
-
-
-
 from .psi_and_derivatives import calculate_psi_with_interpolation
 from .b_theta import calculate_b_theta_with_interpolation
-
-
-
+from .utils import radial_gradient
+from wake_t.utilities.numba import njit_serial
 
 
 def deepcopy_pp_state(pp_state):
@@ -57,17 +67,16 @@ def deepcopy_pp_state(pp_state):
     return tuple(out)
 
 
-
-
-
-
+# ---------------------------------------------------------------------------
+# AG projection helpers
+# ---------------------------------------------------------------------------
 
 @njit_serial
 def pp_calculate_fields_on_single_ag_row(
     species_list,
-    ag_r_grid_n,   # normalized by s_d
-    ag_psi_row,
-    ag_bt_row,
+    ag_r_grid_n,   # normalized by s_d, no guards, includes border cells
+    ag_psi_row,    # no guards slice view
+    ag_bt_row,     # no guards slice view
 ):
     """
     Project the CURRENT plasma-particle state onto one radial row of one
@@ -105,14 +114,15 @@ def pp_calculate_fields_on_single_ag_row(
 @njit_serial
 def pp_project_fields_to_single_ag(
     species_list,
-    slice_i,
-    ag_i_grid,
-    ag_r_grid_n,   # normalized by s_d
-    ag_psi_grid,
-    ag_bt_grid,
+    slice_i,       # GLOBAL base-grid slice index
+    ag_i_grid,     # GLOBAL slice indices covered by AG, length ag_nxi
+    ag_r_grid_n,   # normalized by s_d, no guards, includes border cells
+    ag_psi_grid,   # with guards
+    ag_bt_grid,    # with guards
 ):
     """
-    Write the CURRENT slice `slice_i` onto the single target adaptive grid.
+    Write the CURRENT global slice `slice_i` onto the single target adaptive
+    grid if that slice is covered by the AG.
     """
     if ag_i_grid.shape[0] == 0:
         return
@@ -120,6 +130,9 @@ def pp_project_fields_to_single_ag(
     if slice_i < ag_i_grid[0] or slice_i > ag_i_grid[-1]:
         return
 
+    # ag_i_grid is contiguous in practice. Keep the same mapping convention
+    # as the rest of your AG code:
+    #   local row in guarded AG array = (slice_i - ag_i_grid[0]) + 2
     local_i = slice_i + 2 - ag_i_grid[0]
 
     pp_calculate_fields_on_single_ag_row(
@@ -130,28 +143,30 @@ def pp_project_fields_to_single_ag(
     )
 
 
+# ---------------------------------------------------------------------------
+# Window evolution kernels
+# Split into nobeam / beam versions so Numba never has to type-check
+# pp_gather_bunch_sources when there are no beam sources.
+# ---------------------------------------------------------------------------
+
 @njit_serial
-def evolve_window_inplace_AG(
+def evolve_window_inplace_AG_nobeam(
     pp_serialized_list,
     n_xi,
     n_r,
     dxi,
     dr,
-    r_fld_n,   # base-grid r, normalized; still needed for laser/rho/chi
+    r_fld_n,          # BASE-grid r, normalized
     has_laser_source,
-    laser_a2,
-    nabla_a2,
-    has_beam_source,
-    bunch_source_arrays,
-    bunch_source_xi_indices,
-    bunch_source_metadata,
+    laser_a2,         # BASE-grid laser array with guards
+    nabla_a2,         # BASE-grid radial gradient with guards
     max_gamma,
 
     # single target AG
     ag_i_grid,
-    ag_r_grid_n,   # normalized by s_d
-    ag_psi_grid,
-    ag_bt_grid,
+    ag_r_grid_n,      # normalized, no guards, includes border cells
+    ag_psi_grid,      # guarded AG output
+    ag_bt_grid,       # guarded AG output
 
     shape,
     calculate_rho,
@@ -161,54 +176,33 @@ def evolve_window_inplace_AG(
     chi,
     store_plasma_history,
     particle_diags,
-    start_slice_i,   # inclusive
-    stop_slice_i,    # inclusive
+    start_slice_i,    # inclusive, GLOBAL index
+    stop_slice_i,     # inclusive, GLOBAL index
 ):
     """
     Resume from existing plasma state and evolve only a small slice window.
     Write psi and b_theta only onto the single target adaptive grid.
+    No beam-source gathering in this kernel.
     """
-    print("In evolve_window_inplace_AG, start")
+    print("In evolve_window_inplace_AG_nobeam, start")
     ions_computed = False
     pp_species_list = [PlasmaParticleContainer(species) for species in pp_serialized_list]
 
-
-   # laser_a2 / nabla_a2 live on the BASE grid; derive base-grid dr from r_fld_n.
+    # laser_a2 / nabla_a2 live on the BASE grid
     dr_base = r_fld_n[1] - r_fld_n[0]
-
 
     for slice_i in range(start_slice_i, stop_slice_i - 1, -1):
         pp_sort(pp_species_list)
-        print("In evolve_window_inplace_AG, start laser source")
+
+        print("In evolve_window_inplace_AG_nobeam, start laser source")
         if has_laser_source:
-            # ag_i_grid[slice_i] maps local AG index -> base-grid plasma slice index
-            base_slice = ag_i_grid[slice_i]
             pp_gather_laser_sources(
                 pp_species_list,
-                laser_a2[base_slice + 2],
-                nabla_a2[base_slice + 2],
+                laser_a2[slice_i + 2],
+                nabla_a2[slice_i + 2],
                 r_fld_n[0],
                 r_fld_n[-1],
                 dr_base,
-            )
-
-            #pp_gather_laser_sources(
-            #    pp_species_list,
-            #    laser_a2[slice_i + 2],
-            #    nabla_a2[slice_i + 2],
-            #    r_fld_n[0],
-            #    r_fld_n[-1],
-            #    dr,
-            #)
-
-        print("In evolve_window_inplace_AG, start beam source")
-        if has_beam_source:
-            pp_gather_bunch_sources(
-                pp_species_list,
-                bunch_source_arrays,
-                bunch_source_xi_indices,
-                bunch_source_metadata,
-                slice_i,
             )
 
         pp_calculate_fields(pp_species_list, ions_computed, max_gamma)
@@ -256,6 +250,138 @@ def evolve_window_inplace_AG(
             pp_evolve(pp_species_list, dxi)
 
 
+@njit_serial
+def evolve_window_inplace_AG_beam(
+    pp_serialized_list,
+    n_xi,
+    n_r,
+    dxi,
+    dr,
+    r_fld_n,              # BASE-grid r, normalized
+    has_laser_source,
+    laser_a2,             # BASE-grid laser array with guards
+    nabla_a2,             # BASE-grid radial gradient with guards
+    bunch_source_arrays,      # tuple of 2D arrays
+    bunch_source_xi_indices,  # tuple of 1D int arrays of GLOBAL slice indices
+    bunch_source_metadata,    # tuple of 1D float arrays [r_min, r_max, dr]
+    max_gamma,
+
+    # single target AG
+    ag_i_grid,
+    ag_r_grid_n,          # normalized, no guards, includes border cells
+    ag_psi_grid,          # guarded AG output
+    ag_bt_grid,           # guarded AG output
+
+    shape,
+    calculate_rho,
+    rho,
+    rho_e,
+    rho_i,
+    chi,
+    store_plasma_history,
+    particle_diags,
+    start_slice_i,        # inclusive, GLOBAL index
+    stop_slice_i,         # inclusive, GLOBAL index
+):
+    """
+    Same as evolve_window_inplace_AG_nobeam but with bunch-source gathering.
+    """
+    print("In evolve_window_inplace_AG_beam, start")
+    ions_computed = False
+    pp_species_list = [PlasmaParticleContainer(species) for species in pp_serialized_list]
+
+    dr_base = r_fld_n[1] - r_fld_n[0]
+
+    for slice_i in range(start_slice_i, stop_slice_i - 1, -1):
+        pp_sort(pp_species_list)
+
+        print("In evolve_window_inplace_AG_beam, start laser source")
+        if has_laser_source:
+            pp_gather_laser_sources(
+                pp_species_list,
+                laser_a2[slice_i + 2],
+                nabla_a2[slice_i + 2],
+                r_fld_n[0],
+                r_fld_n[-1],
+                dr_base,
+            )
+
+        print("In evolve_window_inplace_AG_beam, start beam source")
+        pp_gather_bunch_sources(
+            pp_species_list,
+            bunch_source_arrays,
+            bunch_source_xi_indices,
+            bunch_source_metadata,
+            slice_i,
+        )
+
+        pp_calculate_fields(pp_species_list, ions_computed, max_gamma)
+
+        pp_project_fields_to_single_ag(
+            pp_species_list,
+            slice_i,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+        )
+
+        if calculate_rho:
+            pp_deposit_rho(
+                pp_species_list,
+                ions_computed,
+                shape,
+                rho[slice_i + 2],
+                rho_e[slice_i + 2],
+                rho_i[slice_i + 2],
+                r_fld_n,
+                n_r,
+                dr,
+            )
+        elif "w" in particle_diags:
+            pp_calculate_weights(pp_species_list, ions_computed)
+
+        if has_laser_source:
+            pp_deposit_chi(
+                pp_species_list,
+                shape,
+                chi[slice_i + 2],
+                r_fld_n,
+                n_r,
+                dr,
+            )
+
+        ions_computed = True
+
+        if store_plasma_history:
+            pp_store_current_step(pp_species_list, particle_diags)
+
+        if slice_i > 0:
+            pp_evolve(pp_species_list, dxi)
+
+
+# ---------------------------------------------------------------------------
+# Public helper functions used by beamloading_initial_condition_adaptive_grids.py
+# ---------------------------------------------------------------------------
+
+def _prepare_bunch_source_args(
+    bunch_source_arrays,
+    bunch_source_xi_indices,
+    bunch_source_metadata,
+):
+    """
+    Convert Python lists to Numba-friendly tuples with explicit dtypes.
+    """
+    if len(bunch_source_arrays) != len(bunch_source_xi_indices):
+        raise ValueError("bunch_source_arrays and bunch_source_xi_indices length mismatch")
+    if len(bunch_source_arrays) != len(bunch_source_metadata):
+        raise ValueError("bunch_source_arrays and bunch_source_metadata length mismatch")
+
+    arrays_arg = tuple(np.asarray(a, dtype=np.float64) for a in bunch_source_arrays)
+    xi_idx_arg = tuple(np.asarray(idx, dtype=np.int64) for idx in bunch_source_xi_indices)
+    meta_arg = tuple(np.asarray(md, dtype=np.float64) for md in bunch_source_metadata)
+    return arrays_arg, xi_idx_arg, meta_arg
+
 
 def build_pp_cache_at_kp1(
     k_tail,
@@ -282,7 +408,7 @@ def build_pp_cache_at_kp1(
 
     # single target AG
     ag_i_grid,
-    ag_r_grid,     # physical units
+    ag_r_grid,     # physical units, no guards, includes border cells
     ag_psi_grid,
     ag_bt_grid,
 ):
@@ -292,10 +418,11 @@ def build_pp_cache_at_kp1(
 
     In SALAME single-AG mode, only the target AG is written.
     """
-    
     print("In build_pp_chache, start")
+
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
+    # Normalize geometry for plasma evolution on the AG domain.
     s_d = ge.plasma_skin_depth(n_p * 1e-6)
     r_max_n = r_max / s_d
     xi_min_n = xi_min / s_d
@@ -312,11 +439,10 @@ def build_pp_cache_at_kp1(
 
     def radial_density_normalized(r):
         return radial_density(r * s_d) / n_p
+
     print("In build_pp_chache, after normalization")
 
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
-
-    # base-grid arrays are only scratch here
+    # Base-grid scratch arrays only
     B_t[:] = 0.0
     chi[:] = 0.0
     rho[:] = 0.0
@@ -325,31 +451,28 @@ def build_pp_cache_at_kp1(
     E_r[:] = 0.0
     E_z[:] = 0.0
 
-    # target AG scratch/output
+    # Target AG scratch/output
     ag_psi_grid[:] = 0.0
     ag_bt_grid[:] = 0.0
 
+    # Laser source: laser_a2 is on BASE grid
     has_laser_source = laser_a2 is not None
     if has_laser_source:
-        # laser_a2 lives on the BASE grid; allocate nabla_a2 with base-grid dims
         n_xi_base = laser_a2.shape[0] - 4
-        n_r_base  = laser_a2.shape[1] - 4
-        dr_base   = r_fld_n[1] - r_fld_n[0]
-        nabla_a2  = np.zeros((n_xi_base + 4, n_r_base + 4))
+        n_r_base = laser_a2.shape[1] - 4
+        dr_base = r_fld_n[1] - r_fld_n[0]
+        nabla_a2 = np.zeros((n_xi_base + 4, n_r_base + 4))
         radial_gradient(laser_a2[2:-2, 2:-2], dr_base, nabla_a2[2:-2, 2:-2])
-
-        #radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
     else:
         laser_a2 = np.zeros((0, 0))
         nabla_a2 = np.zeros((0, 0))
 
-
-    has_beam_source = len(bunch_source_arrays) > 0
-    if not has_beam_source:
-        # need to set the dtype for JIT
-        bunch_source_arrays.append(np.zeros((0, 0)))
-        bunch_source_xi_indices.append(np.zeros(0, dtype=np.int64))
-        bunch_source_metadata.append(np.zeros(0))
+    arrays_arg, xi_idx_arg, meta_arg = _prepare_bunch_source_args(
+        bunch_source_arrays,
+        bunch_source_xi_indices,
+        bunch_source_metadata,
+    )
+    has_beam_source = len(arrays_arg) > 0
 
     print("In build_pp_chache, after zeros")
     init_list = [
@@ -366,8 +489,6 @@ def build_pp_cache_at_kp1(
     ]
 
     print("In build_pp_chache, before pp_initialize")
-
-
     species_list = pp_initialize(
         init_list,
         n_xi,
@@ -378,48 +499,73 @@ def build_pp_cache_at_kp1(
         False,   # critical: no history for cheap cache copies
         plasma_pusher,
     )
-
     pp_cache = tuple(s.serialize() for s in species_list)
 
-
     print("In build_pp_chache, before evolve_window")
+    print(f"{bunch_source_arrays=}")
+    print(f"{has_beam_source=}")
 
-    # evolve tail -> k_tail+1 so returned state is ready for slice k_tail
-    evolve_window_inplace_AG(
-        pp_cache,
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        r_fld_n,
-        has_laser_source,
-        laser_a2,
-        nabla_a2,
-        True,
-        tuple(bunch_source_arrays),
-        tuple(bunch_source_xi_indices),
-        tuple(bunch_source_metadata),
-        max_gamma,
-        ag_i_grid,
-        ag_r_grid_n,
-        ag_psi_grid,
-        ag_bt_grid,
-        p_shape,
-        False,    # calculate_rho off
-        rho,
-        rho_e,
-        rho_i,
-        chi,
-        False,    # no history
-        ("none",),
-        n_xi - 1,
-        k_tail + 1,
-    )
+    # Evolve tail -> k_tail+1 so returned state is ready for slice k_tail.
+    if has_beam_source:
+        evolve_window_inplace_AG_beam(
+            pp_cache,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
+            arrays_arg,
+            xi_idx_arg,
+            meta_arg,
+            max_gamma,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+            p_shape,
+            False,    # calculate_rho off
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            False,    # no history
+            ("none",),
+            n_xi - 1,
+            k_tail + 1,
+        )
+    else:
+        evolve_window_inplace_AG_nobeam(
+            pp_cache,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
+            max_gamma,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+            p_shape,
+            False,    # calculate_rho off
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            False,    # no history
+            ("none",),
+            n_xi - 1,
+            k_tail + 1,
+        )
+
     print("In build_pp_chache, after evolve_window")
-
     return pp_cache
-
-
 
 
 def calculate_wakefields_ez_km1_from_cache(
@@ -443,14 +589,16 @@ def calculate_wakefields_ez_km1_from_cache(
 
     # single target AG
     ag_i_grid,
-    ag_r_grid,      # physical units
+    ag_r_grid,      # physical units, no guards, includes border cells
     ag_psi_grid,
     ag_bt_grid,
 ):
     """
     Starting from cached plasma state at k+1, evolve only slices k..k-2
-    and return Ez(k-1, r) on the target adaptive grid.
+    and return Ez(k-1, r) on the target adaptive grid interior radial nodes.
     """
+    print("In calculate_wakefields_ez_km1_from_cache, start")
+
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
     s_d = ge.plasma_skin_depth(n_p * 1e-6)
@@ -463,9 +611,7 @@ def calculate_wakefields_ez_km1_from_cache(
     r_fld_n = r_fld / s_d
     ag_r_grid_n = ag_r_grid / s_d
 
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
-
-    # scratch base-grid arrays
+    # Base-grid scratch arrays
     B_t[:] = 0.0
     chi[:] = 0.0
     rho[:] = 0.0
@@ -474,71 +620,119 @@ def calculate_wakefields_ez_km1_from_cache(
     E_r[:] = 0.0
     E_z[:] = 0.0
 
-    # target AG arrays for this trial
+    # Target AG arrays for this trial
     ag_psi_grid[:] = 0.0
     ag_bt_grid[:] = 0.0
 
     has_laser_source = laser_a2 is not None
     if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+        n_xi_base = laser_a2.shape[0] - 4
+        n_r_base = laser_a2.shape[1] - 4
+        dr_base = r_fld_n[1] - r_fld_n[0]
+        nabla_a2 = np.zeros((n_xi_base + 4, n_r_base + 4))
+        radial_gradient(laser_a2[2:-2, 2:-2], dr_base, nabla_a2[2:-2, 2:-2])
     else:
         laser_a2 = np.zeros((0, 0))
         nabla_a2 = np.zeros((0, 0))
 
-    # scratch state so cache itself is not mutated
+    arrays_arg, xi_idx_arg, meta_arg = _prepare_bunch_source_args(
+        bunch_source_arrays,
+        bunch_source_xi_indices,
+        bunch_source_metadata,
+    )
+    has_beam_source = len(arrays_arg) > 0
+
+    # Scratch state so cache itself is not mutated
     pp_trial = deepcopy_pp_state(pp_state_kp1)
 
-    # evolve k, k-1, k-2
-    evolve_window_inplace_AG(
-        pp_trial,
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        r_fld_n,
-        has_laser_source,
-        laser_a2,
-        nabla_a2,
-        True,
-        tuple(bunch_source_arrays),
-        tuple(bunch_source_xi_indices),
-        tuple(bunch_source_metadata),
-        max_gamma,
-        ag_i_grid,
-        ag_r_grid_n,
-        ag_psi_grid,
-        ag_bt_grid,
-        p_shape,
-        False,     # rho off
-        rho,
-        rho_e,
-        rho_i,
-        chi,
-        False,     # no history
-        ("none",),
-        k,
-        k - 2,
-    )
+    print("In calculate_wakefields_ez_km1_from_cache, before evolve_window")
+    print(f"{has_beam_source=}")
 
-    # compute Ez(k-1) using centered stencil from AG psi
-    # need rows for k and k-2 to exist on the AG
+    # Evolve k, k-1, k-2
+    if has_beam_source:
+        evolve_window_inplace_AG_beam(
+            pp_trial,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
+            arrays_arg,
+            xi_idx_arg,
+            meta_arg,
+            max_gamma,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+            p_shape,
+            False,     # rho off
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            False,     # no history
+            ("none",),
+            k,
+            k - 2,
+        )
+    else:
+        evolve_window_inplace_AG_nobeam(
+            pp_trial,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
+            max_gamma,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+            p_shape,
+            False,     # rho off
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            False,     # no history
+            ("none",),
+            k,
+            k - 2,
+        )
+
+    print(f"{k}")
+    print(f"{ag_i_grid[0]}")
+    print(f"{ag_i_grid[-1]}")
+    # Compute Ez(k-1) using centered stencil from AG psi.
+    # Need rows for k and k-2 to exist on the AG.
     if k < ag_i_grid[0] or k > ag_i_grid[-1]:
         raise ValueError("slice k is outside target adaptive-grid xi range")
     if (k - 2) < ag_i_grid[0] or (k - 2) > ag_i_grid[-1]:
         raise ValueError("slice k-2 is outside target adaptive-grid xi range")
 
-    local_k   = k     + 2 - ag_i_grid[0]
+    local_k = k + 2 - ag_i_grid[0]
     local_km2 = k - 2 + 2 - ag_i_grid[0]
 
     E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
 
-    # interior radial nodes only, matching ag_r_grid
-    psi_k   = ag_psi_grid[local_k,   2:-2]
+    # Interior radial nodes only, matching ag_r_grid
+    psi_k = ag_psi_grid[local_k, 2:-2]
     psi_km2 = ag_psi_grid[local_km2, 2:-2]
 
     Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
-    return Ez_r_km1
 
+    print("In calculate_wakefields_ez_km1_from_cache, after evolve_window")
+    print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
+    print("psi(km2) axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
+
+    return Ez_r_km1
 
 
 def commit_cache_one_slice(
@@ -560,7 +754,7 @@ def commit_cache_one_slice(
 
     # single target AG
     ag_i_grid,
-    ag_r_grid,      # physical units
+    ag_r_grid,      # physical units, no guards, includes border cells
     ag_psi_grid,
     ag_bt_grid,
 ):
@@ -568,6 +762,8 @@ def commit_cache_one_slice(
     Advance the plasma cache by exactly one slice k.
     In single-AG SALAME mode, only the target AG row(s) are written.
     """
+    print("In commit_cache_one_slice, start")
+
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
     s_d = ge.plasma_skin_depth(n_p * 1e-6)
@@ -580,9 +776,7 @@ def commit_cache_one_slice(
     r_fld_n = r_fld / s_d
     ag_r_grid_n = ag_r_grid / s_d
 
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
-
-    # scratch base-grid arrays
+    # Base-grid scratch arrays
     B_t[:] = 0.0
     chi[:] = 0.0
     rho[:] = 0.0
@@ -591,45 +785,87 @@ def commit_cache_one_slice(
     E_r[:] = 0.0
     E_z[:] = 0.0
 
-    # you can choose not to zero whole AG arrays if preserving previous rows matters
-    # for safety here, zero them
+    # For safety, zero AG arrays too
     ag_psi_grid[:] = 0.0
     ag_bt_grid[:] = 0.0
 
     has_laser_source = laser_a2 is not None
     if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+        n_xi_base = laser_a2.shape[0] - 4
+        n_r_base = laser_a2.shape[1] - 4
+        dr_base = r_fld_n[1] - r_fld_n[0]
+        nabla_a2 = np.zeros((n_xi_base + 4, n_r_base + 4))
+        radial_gradient(laser_a2[2:-2, 2:-2], dr_base, nabla_a2[2:-2, 2:-2])
     else:
         laser_a2 = np.zeros((0, 0))
         nabla_a2 = np.zeros((0, 0))
 
-    evolve_window_inplace_AG(
-        pp_cache,
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        r_fld_n,
-        has_laser_source,
-        laser_a2,
-        nabla_a2,
-        True,
-        tuple(bunch_source_arrays),
-        tuple(bunch_source_xi_indices),
-        tuple(bunch_source_metadata),
-        max_gamma,
-        ag_i_grid,
-        ag_r_grid_n,
-        ag_psi_grid,
-        ag_bt_grid,
-        p_shape,
-        False,     # rho off
-        rho,
-        rho_e,
-        rho_i,
-        chi,
-        False,     # no history
-        ("none",),
-        k,
-        k,
+    arrays_arg, xi_idx_arg, meta_arg = _prepare_bunch_source_args(
+        bunch_source_arrays,
+        bunch_source_xi_indices,
+        bunch_source_metadata,
     )
+    has_beam_source = len(arrays_arg) > 0
+
+    print("In commit_cache_one_slice, before evolve_window")
+    print(f"{has_beam_source=}")
+
+    if has_beam_source:
+        evolve_window_inplace_AG_beam(
+            pp_cache,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
+            arrays_arg,
+            xi_idx_arg,
+            meta_arg,
+            max_gamma,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+            p_shape,
+            False,     # rho off
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            False,     # no history
+            ("none",),
+            k,
+            k,
+        )
+    else:
+        evolve_window_inplace_AG_nobeam(
+            pp_cache,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
+            max_gamma,
+            ag_i_grid,
+            ag_r_grid_n,
+            ag_psi_grid,
+            ag_bt_grid,
+            p_shape,
+            False,     # rho off
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            False,     # no history
+            ("none",),
+            k,
+            k,
+        )
+
+    print("In commit_cache_one_slice, after evolve_window")
