@@ -297,6 +297,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         self._initial_condition_done = False
 
         self.use_SALAME = False
+        self.SALAME_current_flat_Ez = False
 
 
 
@@ -306,6 +307,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Add bunch source array (needed if not using adaptive grids).
         self.b_t_bunch = np.zeros((self.n_xi + 4, self.n_r + 4))
         self.q_bunch = np.zeros((self.n_xi + 4, self.n_r + 4))
+        self.q_var = np.zeros((self.n_xi + 4, self.n_r + 4))
         self.laser_a2 = np.zeros((self.n_xi + 4, self.n_r + 4))
         self.fld_arrays = [
             self.rho,
@@ -389,17 +391,17 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 )
         
             # --- build q_var = deposit(witness only) ---
-            q_var = np.zeros_like(self.q_bunch)
+            self.q_var = np.zeros_like(self.q_bunch)
             deposit_bunch_charge(
                 witness.x, witness.y, witness.xi, witness.q,
                 self.n_p, self.n_r, self.n_xi,
                 self.r_fld, self.xi_fld,
                 self.dr, self.dxi,
                 self.p_shape,
-                q_var,
+                self.q_var,
             )
         
-            self.q_bunch[:] = q_fixed + q_var
+            self.q_bunch[:] = q_fixed + self.q_var
 
 
 
@@ -441,12 +443,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
  
                 # NEW: pass fixed + variable deposits separately
                 q_fixed=q_fixed,
-                q_var=q_var,
+                q_var=self.q_var,
 
 
 
                 )
         
+
 
             end = time.perf_counter()
             print(f"Elapsed: {end - start:.6f} s")
@@ -563,22 +566,38 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             ##if False:
             #    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
 
-            self._reset_bunch_arrays()
-            for bunch in bunches_without_grid:
+
+            if self.SALAME_current_flat_Ez and (not self._initial_condition_done):
+                self.b_t_bunch[:] = 0.0
+            else:
+                self._reset_bunch_arrays()
+                for bunch in bunches_without_grid:
+                    deposit_bunch_charge(
+                        bunch.x,
+                        bunch.y,
+                        bunch.xi,
+                        bunch.q,
+                        self.n_p,
+                        self.n_r,
+                        self.n_xi,
+                        self.r_fld,
+                        self.xi_fld,
+                        self.dr,
+                        self.dxi,
+                        self.p_shape,
+                        self.q_bunch,
+                    )
+              
+                # --- build q_var = deposit(witness only) ---
+                witness = self._select_witness_bunch(bunches)
+                self.q_var = np.zeros_like(self.q_bunch)
                 deposit_bunch_charge(
-                    bunch.x,
-                    bunch.y,
-                    bunch.xi,
-                    bunch.q,
-                    self.n_p,
-                    self.n_r,
-                    self.n_xi,
-                    self.r_fld,
-                    self.xi_fld,
-                    self.dr,
-                    self.dxi,
+                    witness.x, witness.y, witness.xi, witness.q,
+                    self.n_p, self.n_r, self.n_xi,
+                    self.r_fld, self.xi_fld,
+                    self.dr, self.dxi,
                     self.p_shape,
-                    self.q_bunch,
+                    self.q_var,
                 )
 
             #if not self._initial_condition_done:
@@ -745,6 +764,22 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 },
                 "attributes": {},
             }
+
+
+        if "q_bunch_wit" in self.field_diags:
+            diag_data["fields"].append("q_bunch_wit")
+            diag_data["q_bunch_wit"] = {
+                "array": np.ascontiguousarray(self.q_var.T[2:-2, 2:-2]/k),
+                "position": [0.5, 0.0],
+                "grid": {
+                    "spacing": [self.dr, self.dxi],
+                    "labels": ["r", "z"],
+                    "global_offset": [0.0, global_time * ct.c + self.xi_min],
+                },
+                "attributes": {},
+            }
+
+
 
         # Add fields from adaptive grids to openpmd diagnostics.
         if self.use_adaptive_grids:

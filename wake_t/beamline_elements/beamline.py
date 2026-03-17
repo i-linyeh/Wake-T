@@ -20,6 +20,7 @@ class Beamline:
         diag_dir: Optional[str] = None,
         show_progress_bar: Optional[bool] = True,
         use_SALAME: bool = False,
+        SALAME_current_flat_Ez: bool = False,
     ) -> Union[List[ParticleBunch], List[List[ParticleBunch]]]:
         """
         Track bunch through beamline.
@@ -68,6 +69,7 @@ class Beamline:
                     opmd_diag=opmd_diag,
                     show_progress_bar=show_progress_bar,
                     use_SALAME=use_SALAME,   # <--- NEW
+                    SALAME_current_flat_Ez=SALAME_current_flat_Ez,   # <--- NEW
                 )
             except TypeError:
                 out = element.track(

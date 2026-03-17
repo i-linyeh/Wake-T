@@ -331,6 +331,7 @@ def beamloading_initial_condition(
         q_bunch[:, :] = qb_total_from_var(qb_var_current) 
 
 
+
         print(f"{np.sum(bunch_source_arrays)=}")
 
         commit_cache_one_slice(
@@ -355,6 +356,7 @@ def beamloading_initial_condition(
     qb_total_final = qb_total_from_var(qb_var_current)
     q_bunch[:, :] = qb_total_final
 
+    q_var[:,:] = qb_var_current
 
 
 
