@@ -13,11 +13,6 @@ from .b_theta import calculate_b_theta_with_interpolation
 from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge, calculate_bunch_source_slice
 from .utils import longitudinal_gradient, radial_gradient
 
-from .solver import calculate_wakefields, calculate_wakefields_ez_slice, calculate_wakefields_ez_km1_from_cache, build_pp_cache_at_kp1, commit_cache_one_slice
-
-
-
-import time
 
 
 

@@ -8,7 +8,6 @@ import aptools.plasma_accel.general_equations as ge
 from .b_theta_bunch import calculate_bunch_source, calculate_bunch_source_slice
 from .solver import (
     calculate_wakefields,
-    calculate_wakefields_ez_slice,
     calculate_wakefields_ez_km1_from_cache,
     build_pp_cache_at_kp1,
     commit_cache_one_slice,
