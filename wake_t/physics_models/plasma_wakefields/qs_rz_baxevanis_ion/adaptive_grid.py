@@ -1,6 +1,6 @@
 """Contains the definition of the `AdaptiveGrid` class."""
 
-from typing import Optional, Callable, List, Union, Dict
+from typing import Optional
 
 import numpy as np
 import scipy.constants as ct
@@ -10,12 +10,8 @@ from wake_t.utilities.numba import njit_serial
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 from .psi_and_derivatives import calculate_psi_with_interpolation
 from .b_theta import calculate_b_theta_with_interpolation
-from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge, calculate_bunch_source_slice
+from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge
 from .utils import longitudinal_gradient, radial_gradient
-
-
-
-
 
 
 class AdaptiveGrid:
@@ -59,7 +55,6 @@ class AdaptiveGrid:
         x: np.ndarray,
         y: np.ndarray,
         xi: np.ndarray,
-        w: np.ndarray,
         bunch_name: str,
         nr: int,
         nxi: int,
@@ -98,17 +93,6 @@ class AdaptiveGrid:
     def r_max_cell_guard(self):
         """Radial position of last guard grid cell."""
         return self.r_grid[-1] + 2 * self.dr
-
-
-
-
-
-
-
-
-
-
-
 
     def update_if_needed(self, x, y, xi, n_p, pp_hist):
         """
@@ -220,16 +204,8 @@ class AdaptiveGrid:
             p_shape,
             self.q_bunch,
         )
-
-
-
         calculate_bunch_source(self.q_bunch, self.nr, self.nxi, self.b_t_bunch)
         return all_deposited
-
-
-
-
-
 
     def gather_fields(self, x, y, z, ex, ey, ez, bx, by, bz):
         """Gather the plasma fields at the location of the bunch particles.
@@ -365,30 +341,6 @@ class AdaptiveGrid:
         self.e_z = np.zeros((self.nxi + 4, self.nr + 4))
         self.b_t_bunch = np.zeros((self.nxi + 4, self.nr + 4))
         self.q_bunch = np.zeros((self.nxi + 4, self.nr + 4))
-
-        # Allocate solver field arrays (adaptive-grid sized)
-        self.rho   = np.zeros((self.nxi + 4, self.nr + 4))
-        self.rho_e = np.zeros((self.nxi + 4, self.nr + 4))
-        self.rho_i = np.zeros((self.nxi + 4, self.nr + 4))
-        self.chi   = np.zeros((self.nxi + 4, self.nr + 4))
-        
-        # Layout consistent with wakefield.py: [rho, rho_e, rho_i, chi, e_r, e_z, b_t, xi_fld, r_fld]
-        self.fld_arrays = [
-            self.rho,
-            self.rho_e,
-            self.rho_i,
-            self.chi,
-            self.e_r,
-            self.e_z,
-            self.b_t,
-            self.xi_grid,
-            self.r_grid,
-        ]
-        
-
-
-
-
 
     def _reset_fields(self):
         """Reset value of the fields at the grid."""

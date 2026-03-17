@@ -513,6 +513,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                             bunch.x,
                             bunch.y,
                             bunch.xi,
+                            bunch.w,
                             bunch.name,
                             nr_grids[i],
                             self.n_xi,
