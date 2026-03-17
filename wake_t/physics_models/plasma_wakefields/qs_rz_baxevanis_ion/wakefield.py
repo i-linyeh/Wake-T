@@ -341,24 +341,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
 
-#    def _deposit_all_bunches_to_base(self, bunches: List[ParticleBunch]):
-#        #self._reset_bunch_arrays()
-#        for bunch in bunches:
-#            deposit_bunch_charge(
-#                bunch.x, bunch.y, bunch.xi, bunch.q,   # bunch.q uses w*q_species
-#                self.n_p, self.n_r, self.n_xi,
-#                self.r_fld, self.xi_fld,
-#                self.dr, self.dxi,
-#                self.p_shape,
-#                self.q_bunch,
-#            )
-    
-
-
-
-
-
-
 
 
 
@@ -366,11 +348,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
 
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):
-        # --- initial-condition-only init ---
-#        if not self._did_init_ic:
-#            self._init_initial_condition_once(bunches)
-#            self._did_init_ic = True
-
 
         radial_density = self._get_radial_density(self.t * ct.c)
 
@@ -391,9 +368,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         if self.use_SALAME and (not self._initial_condition_done):
         #if False:
-            # 1) build a base-grid deposit of the (initial) bunch distribution
             start = time.perf_counter()
-            #self._deposit_all_bunches_to_base(bunches)
 
 
 
@@ -424,7 +399,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 q_var,
             )
         
-            # store total into self.q_bunch for consistency (optional)
             self.q_bunch[:] = q_fixed + q_var
 
 
@@ -473,15 +447,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
                 )
         
-            # 3) IMPORTANT: after bunch.w changed, its bunch.q changes too
-            #    so any future deposits/gathers must use the updated bunch.q.
-            #self._initial_condition_done = True
-
 
             end = time.perf_counter()
             print(f"Elapsed: {end - start:.6f} s")
 
-            #np.savez('bunch_after_SALAME.npz', w=bunches[0].w)
 
 
 
@@ -561,85 +530,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     bunch, self.n_p, self.p_shape
                 )
 
-
-
-                #do_beamloading = (not self._initial_condition_done)
-                #
-                #all_deposited = grid.calculate_bunch_source(
-                #    bunch,
-                #    n_p=self.n_p,
-                #    ppc=self.ppc,
-                #    #r_max=self.r_max,
-                #    #xi_min=self.xi_min,
-                #    #xi_max=self.xi_max,
-                #    r_max_plasma=self.r_max_plasma,
-                #    p_shape=self.p_shape,
-                #    max_gamma=self.max_gamma,
-                #    plasma_pusher=self.plasma_pusher,
-                #    ion_motion=self.ion_motion,
-                #    ion_mass=self.ion_mass,
-                #    free_electrons_per_ion=self.free_electrons_per_ion,
-                #    field_diags=self.field_diags,
-                #    laser_a2=laser_a2,
-                #    radial_density=radial_density,
-                #    do_beamloading=do_beamloading,
-                #)
-                #
-                #if do_beamloading:
-                #    self._initial_condition_done = True
-                
-
-
-                #all_deposited = grid.calculate_bunch_source(
-                #    bunch,
-                #    n_p=self.n_p,
-                #    ppc=self.ppc,
-                #    r_max=self.r_max,
-                #    xi_min=self.xi_min,
-                #    xi_max=self.xi_max,
-                #    r_max_plasma=self.r_max_plasma,
-                #    p_shape=self.p_shape,
-                #    max_gamma=self.max_gamma,
-                #    plasma_pusher=self.plasma_pusher,
-                #    ion_motion=self.ion_motion,
-                #    ion_mass=self.ion_mass,
-                #    free_electrons_per_ion=self.free_electrons_per_ion,
-                #    field_diags=self.field_diags,
-                #    fld_arrays=self.fld_arrays,
-                #    laser_a2=laser_a2,
-                #    radial_density=radial_density,
-                #    chi=self.chi,
-
-                #)
-
-
-                print(f"{all_deposited=}")
-                #self.b_t_bunch[:] = 0.0
-                #self.q_bunch[:] = 0.0
-                #all_deposited = deposit_bunch_charge(
-                #    bunch.x,
-                #    bunch.y,
-                #    bunch.xi,
-                #    bunch.q,
-                #    self.n_p,
-                #    self.nr - self.nr_border,
-                #    self.nxi,
-                #    self.r_grid,
-                #    self.xi_grid,
-                #    self.dr,
-                #    self.dxi,
-                #    self.p_shape,
-                #    self.q_bunch,
-                #)
-        
-        
-
-                #bunch_source_arrays = []
-                #bunch_source_xi_indices = []
-                #bunch_source_metadata = []
-
-
-
                 bunch_source_arrays.append(grid.b_t_bunch)
                 bunch_source_xi_indices.append(grid.i_grid)
                 bunch_source_metadata.append(
@@ -669,350 +559,96 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             bunches_without_grid = bunches
         # If not using adaptive grids, add all sources to the same array.
         if bunches_without_grid or deposit_outliers_on_base_grid:
-            print("bunch w/o grid or deposit outliers")
-            #if self._initial_condition_done:
-            if True:
-                if not self._initial_condition_done:
-                #if False:
-                    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
+            #print("bunch w/o grid or deposit outliers")
+            #if not self._initial_condition_done:
+            ##if False:
+            #    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
 
-                self._reset_bunch_arrays()
-                for bunch in bunches_without_grid:
-                    deposit_bunch_charge(
-                        bunch.x,
-                        bunch.y,
-                        bunch.xi,
-                        bunch.q,
-                        self.n_p,
-                        self.n_r,
-                        self.n_xi,
-                        self.r_fld,
-                        self.xi_fld,
-                        self.dr,
-                        self.dxi,
-                        self.p_shape,
-                        self.q_bunch,
-                    )
-
-                if not self._initial_condition_done:
-                #if True:
-                    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
-
-
-
-                #data = np.load('q_bunch_after_SALAME.npz')
-                #self.q_bunch = data['q_bunch']
-
-
-
-                #This block of code is to test the inverse_deposit_3d distribution function
-                #This block of code is to test the inverse_deposit_3d distribution function
-                #This block of code is to test the inverse_deposit_3d distribution function
-                #if not self._initial_condition_done:
-#                if False:
-#                    #data = np.load('bunch_after_SALAME.npz')
-#                    #bunches[0].w = data['w']
-#                    print(bunches[0].w)
-#                    
-#                    self.b_t_bunch[:] = 0.0
-#                    self.q_bunch[:] = 0.0
-#                    for bunch in bunches_without_grid:
-#                        deposit_bunch_charge(
-#                            bunch.x,
-#                            bunch.y,
-#                            bunch.xi,
-#                            bunch.q,
-#                            self.n_p,
-#                            self.n_r,
-#                            self.n_xi,
-#                            self.r_fld,
-#                            self.xi_fld,
-#                            self.dr,
-#                            self.dxi,
-#                            self.p_shape,
-#                            self.q_bunch,
-#                        )
-#
-#
-#
-#                    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-#
-#
-#
-#                    q_new, _ = inverse_deposit_3d_distribution(
-#                        bunches[0].xi, bunches[0].x, bunches[0].y,
-#                        self.xi_fld[0], self.r_fld[0],
-#                        self.n_xi, self.n_r, self.dxi, self.dr,
-#                        self.q_bunch,
-#                        p_shape=self.p_shape,
-#                        use_ruyten=True,
-#                    )
-#                    
-#                    
-#                    # 0) Make a grid that counts macroparticles (smoothed)
-#                    count_grid = np.zeros_like(self.q_bunch)
-#                    
-#                    ones = np.ones_like(bunches[0].q)  # unit weight per macroparticle
-#                    
-#                    # Deposit ones (NO k here; use deposit_3d_distribution directly)
-#                    deposit_3d_distribution(
-#                        bunches[0].xi, bunches[0].x, bunches[0].y,
-#                        ones,
-#                        self.xi_fld[0],
-#                        self.r_fld[0],
-#                        self.n_xi,
-#                        self.n_r,
-#                        self.dxi,
-#                        self.dr,
-#                        count_grid,
-#                        p_shape=self.p_shape,
-#                        use_ruyten=True,
-#                    )
-#
-#                    count_p, _ = inverse_deposit_3d_distribution(
-#                        bunches[0].xi, bunches[0].x, bunches[0].y,
-#                        self.xi_fld[0], self.r_fld[0],
-#                        self.n_xi, self.n_r, self.dxi, self.dr,
-#                        count_grid,
-#                        p_shape=self.p_shape,
-#                        use_ruyten=True,
-#                    )
-#
-#
-#
-#                    k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
-#                    
-#                    # convert back to charge-like quantity
-#                    q_est = q_new / k
-#
-#                    eps = 1e-30
-#                    w_est = np.abs(q_est / bunches[0].q_species) / np.maximum(count_p, eps)
-#
-#                    #print(np.abs(q_est / bunches[0].q_species))
-#                    #print(count_p)
-#
-#                    bunches[0].w =  w_est
-#                    print(w_est)
-#
-#
-#
-#                    #self._reset_bunch_arrays()
-#                    self.b_t_bunch[:] = 0.0
-#                    self.q_bunch[:] = 0.0
-#                    for bunch in bunches_without_grid:
-#                        deposit_bunch_charge(
-#                            bunch.x,
-#                            bunch.y,
-#                            bunch.xi,
-#                            bunch.q,
-#                            self.n_p,
-#                            self.n_r,
-#                            self.n_xi,
-#                            self.r_fld,
-#                            self.xi_fld,
-#                            self.dr,
-#                            self.dxi,
-#                            self.p_shape,
-#                            self.q_bunch,
-#                        )
-#
-#                    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
-#
-#
-
-
-
-
-
-
-
-#            # ---- beam-loading only on first solve ----
-#            if self._apply_beamloading_this_solve:
-#                print(self.xi_fld)
-#                print(self.dxi)
-#                print([np.max(self.q_bunch),np.min(self.q_bunch)])
-#    
-#    
-#                # ---- INSERT beam-loading shaper HERE ----
-#                # Example: increase witness charge by 5% between xi=-200um and -100um
-#                self._apply_beamloading_once_on_deposited_qbunch()
-#                #self._apply_beamloading_shaper_on_qbunch(xi_min=-64e-6, xi_max=-64e-6+1*self.dxi,
-#                #                                          scale=1, smooth=0)
-#                print([np.max(self.q_bunch),np.min(self.q_bunch)])
-
-
-
-
-
-#            print(bunches[0].w)
-#            if not self._initial_condition_done:
-#                # ---- INITIAL CONDITION ONLY ----
-#                start = time.perf_counter()
-#                #self._beamloading_initial_condition(
-#                #    laser_a2,
-#                #    radial_density,
-#                #    store_plasma_history,
-#                #    bunch_source_arrays,
-#                #    bunch_source_xi_indices,
-#                #    bunch_source_metadata,
-#                #    bunches
-#                #    )
-#
-#
-#                
-#                beamloading_initial_condition(
-#                    # --- grid arrays/geometry (base grid) ---
-#                    q_bunch=self.q_bunch,
-#                    b_t_bunch=self.b_t_bunch,
-#                    chi=self.chi,
-#                    r_fld=self.r_fld,
-#                    xi_fld=self.xi_fld,
-#                    dr=self.dr,
-#                    dxi=self.dxi,
-#                    n_r=self.n_r,
-#                    n_xi=self.n_xi,
-#                
-#                    # --- solver/plasma params ---
-#                    n_p=self.n_p,
-#                    ppc=self.ppc,
-#                    r_max=self.r_max,
-#                    xi_min=self.xi_min,
-#                    xi_max=self.xi_max,
-#                    r_max_plasma=self.r_max_plasma,
-#                    p_shape=self.p_shape,
-#                    max_gamma=self.max_gamma,
-#                    plasma_pusher=self.plasma_pusher,
-#                    ion_motion=self.ion_motion,
-#                    ion_mass=self.ion_mass,
-#                    free_electrons_per_ion=self.free_electrons_per_ion,
-#                    field_diags=self.field_diags,
-#                    fld_arrays=self.fld_arrays,
-#                
-#                    # --- runtime ---
-#                    laser_a2=laser_a2,
-#                    radial_density=radial_density,
-#                    bunch_source_arrays=bunch_source_arrays,
-#                    bunch_source_xi_indices=bunch_source_xi_indices,
-#                    bunch_source_metadata=bunch_source_metadata,
-#                    bunch=bunches[0],
-#                )
-#                
-#
-#
-#
-#                end = time.perf_counter()
-#                print(f"Elapsed: {end - start:.6f} s")
-#
-#
-#            print(bunches[0].w)
-#            
-#
-#            #self.b_t_bunch[:] = 0.0
-#            #self.b_t_bunch=[]
-#            bunch_source_arrays = []
-#            bunch_source_xi_indices = []
-#            bunch_source_metadata = []
-#
-#
-
-
-
-
-
-            #if self._initial_condition_done:
-            if True:
-                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-                bunch_source_arrays.append(self.b_t_bunch)
-                bunch_source_xi_indices.append(np.arange(self.n_xi))
-                bunch_source_metadata.append(
-                    np.array(
-                        [
-                            self.r_fld[0],
-                            self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
-                            self.dr,
-                        ]
-                    )
-                    / s_d
+            self._reset_bunch_arrays()
+            for bunch in bunches_without_grid:
+                deposit_bunch_charge(
+                    bunch.x,
+                    bunch.y,
+                    bunch.xi,
+                    bunch.q,
+                    self.n_p,
+                    self.n_r,
+                    self.n_xi,
+                    self.r_fld,
+                    self.xi_fld,
+                    self.dr,
+                    self.dxi,
+                    self.p_shape,
+                    self.q_bunch,
                 )
 
+            #if not self._initial_condition_done:
+            ##if True:
+            #    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
 
 
 
-
-
-#            if True:
-#                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
-#                if len(bunch_source_arrays) == 0:
-#                    bunch_source_arrays.append(self.b_t_bunch)
-#                    bunch_source_xi_indices.append(np.arange(self.n_xi))
-#                    bunch_source_metadata.append(
-#                        np.array([self.r_fld[0], self.r_fld[-1] + 2 * self.dr, self.dr]) / s_d
-#                    )
-#                else:
-#                    # overwrite base-grid source (don’t append duplicates)
-#                    bunch_source_arrays[0] = self.b_t_bunch
-#
-
-
-
-
-
-        if True:
-
-            # Calculate rho only if requested in the diagnostics.
-            calculate_rho = any("rho" in diag for diag in self.field_diags)
-    
-            #print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
-            # Calculate plasma wakefields
-            self.pp = calculate_wakefields(
-                laser_a2,
-                self.r_max,
-                self.xi_min,
-                self.xi_max,
-                self.n_r,
-                self.n_xi,
-                self.ppc,
-                self.n_p,
-                r_max_plasma=self.r_max_plasma,
-                radial_density=radial_density,
-                p_shape=self.p_shape,
-                max_gamma=self.max_gamma,
-                plasma_pusher=self.plasma_pusher,
-                ion_motion=self.ion_motion,
-                ion_mass=self.ion_mass,
-                free_electrons_per_ion=self.free_electrons_per_ion,
-                fld_arrays=self.fld_arrays,
-                bunch_source_arrays=bunch_source_arrays,
-                bunch_source_xi_indices=bunch_source_xi_indices,
-                bunch_source_metadata=bunch_source_metadata,
-                store_plasma_history=store_plasma_history,
-                calculate_rho=calculate_rho,
-                particle_diags=self.particle_diags,
+            calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+            bunch_source_arrays.append(self.b_t_bunch)
+            bunch_source_xi_indices.append(np.arange(self.n_xi))
+            bunch_source_metadata.append(
+                np.array(
+                    [
+                        self.r_fld[0],
+                        self.r_fld[-1] + 2 * self.dr,  # r of last guard cell.
+                        self.dr,
+                    ]
+                )
+                / s_d
             )
+
+
+        # Calculate rho only if requested in the diagnostics.
+        calculate_rho = any("rho" in diag for diag in self.field_diags)
+    
+        #print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
+        # Calculate plasma wakefields
+        self.pp = calculate_wakefields(
+            laser_a2,
+            self.r_max,
+            self.xi_min,
+            self.xi_max,
+            self.n_r,
+            self.n_xi,
+            self.ppc,
+            self.n_p,
+            r_max_plasma=self.r_max_plasma,
+            radial_density=radial_density,
+            p_shape=self.p_shape,
+            max_gamma=self.max_gamma,
+            plasma_pusher=self.plasma_pusher,
+            ion_motion=self.ion_motion,
+            ion_mass=self.ion_mass,
+            free_electrons_per_ion=self.free_electrons_per_ion,
+            fld_arrays=self.fld_arrays,
+            bunch_source_arrays=bunch_source_arrays,
+            bunch_source_xi_indices=bunch_source_xi_indices,
+            bunch_source_metadata=bunch_source_metadata,
+            store_plasma_history=store_plasma_history,
+            calculate_rho=calculate_rho,
+            particle_diags=self.particle_diags,
+        )
     
     
     
-    #        if self._apply_beamloading_this_solve:
-    #            E_z = self.fld_arrays[5]
-    #            E_z_phys = E_z[2:-2, 2:-2]   # interior (no guard cells)
-    #            print(E_z_phys[:,0])
     
     
     
+        # Add bunch density to total density.
+        if calculate_rho:
+            rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
+            self.rho[2:-2, 2:-2] += rho_bunch
     
-            # Add bunch density to total density.
-            if calculate_rho:
-                rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
-                self.rho[2:-2, 2:-2] += rho_bunch
+        # Calculate fields on adaptive grids.
+        if self.use_adaptive_grids:
+            for _, grid in self.bunch_grids.items():
+                grid.calculate_fields(self.n_p, self.pp)
     
-            # Calculate fields on adaptive grids.
-            if self.use_adaptive_grids:
-                for _, grid in self.bunch_grids.items():
-                    grid.calculate_fields(self.n_p, self.pp)
-    
-    #        # After first wake solve, disable one-time beam-loading effect
-    #        if self._apply_beamloading_this_solve:
-    #            self._apply_beamloading_this_solve = False
     
     
         # After first wake solve, disable one-time beam-loading effect
