@@ -255,7 +255,7 @@ def beamloading_initial_condition(
                 g_new = g_min
                 qb_try = set_slice_line_charge_var(qb_var_current, k, g_new)
                 Ez_try_km1 = solve_Ez_weighted_km1_cached(qb_try, pp_cache, k - 1)
-                qb_new, Ez_new_km1 = qb_try, Ez_try_km1
+                qb_new = qb_try
                 print(f"{Ez_try_km1=}")
                 print("Need positrons for this slice...")
                 break
@@ -275,7 +275,6 @@ def beamloading_initial_condition(
                 g_max, Ez_max_km1 = g_new, Ez_try_km1
 
             rel = np.abs(Ez_try_km1 - Ez_target) / (np.abs(Ez_target) + 1e-300)
-            # qb_new, Ez_new_km1 = qb_try, Ez_try_km1
             qb_new = qb_try
             print(f"{rel=}")
             if rel < tol:
