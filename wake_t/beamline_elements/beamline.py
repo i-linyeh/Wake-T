@@ -52,7 +52,7 @@ class Beamline:
         bunch_list = []
         if type(opmd_diag) is not OpenPMDDiagnostics and opmd_diag:
             opmd_diag = OpenPMDDiagnostics(write_dir=diag_dir)
-        #for element in self.elements:
+        # for element in self.elements:
         #    bunch_list.extend(
         #        element.track(
         #            bunches,
@@ -60,7 +60,7 @@ class Beamline:
         #            show_progress_bar=show_progress_bar,
         #        )
         #    )
-        
+
         for element in self.elements:
             # Robust forwarding: if an element doesn't accept use_SALAME, don't crash.
             try:
@@ -68,8 +68,8 @@ class Beamline:
                     bunches,
                     opmd_diag=opmd_diag,
                     show_progress_bar=show_progress_bar,
-                    use_SALAME=use_SALAME,   # <--- NEW
-                    SALAME_current_flat_Ez=SALAME_current_flat_Ez,   # <--- NEW
+                    use_SALAME=use_SALAME,  # <--- NEW
+                    SALAME_current_flat_Ez=SALAME_current_flat_Ez,  # <--- NEW
                 )
             except TypeError:
                 out = element.track(
@@ -78,9 +78,5 @@ class Beamline:
                     show_progress_bar=show_progress_bar,
                 )
             bunch_list.extend(out)
-
-
-
-
 
         return bunch_list

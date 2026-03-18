@@ -6,8 +6,17 @@ from numpy.typing import ArrayLike
 import scipy.constants as ct
 import aptools.plasma_accel.general_equations as ge
 
-from .solver import calculate_wakefields, calculate_wakefields_ez_km1_from_cache, build_pp_cache_at_kp1, commit_cache_one_slice
-from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge, calculate_bunch_source_slice
+from .solver import (
+    calculate_wakefields,
+    calculate_wakefields_ez_km1_from_cache,
+    build_pp_cache_at_kp1,
+    commit_cache_one_slice,
+)
+from .b_theta_bunch import (
+    calculate_bunch_source,
+    deposit_bunch_charge,
+    calculate_bunch_source_slice,
+)
 from .adaptive_grid import AdaptiveGrid
 from .utils import calculate_laser_a2
 from wake_t.fields.rz_wakefield import RZWakefield
@@ -24,8 +33,6 @@ from .utils import longitudinal_gradient, radial_gradient
 import time
 
 from .beamloading_initial_condition import beamloading_initial_condition
-
-
 
 
 class Quasistatic2DWakefieldIon(RZWakefield):
@@ -290,17 +297,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             model_name="quasistatic_2d_ion",
         )
 
-
         # --- one-time init & one-time application flags ---
-        #self._did_init_ic = False              # init hook has been executed?
-        #self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
+        # self._did_init_ic = False              # init hook has been executed?
+        # self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
         self._initial_condition_done = False
 
         self.use_SALAME = False
         self.SALAME_current_flat_Ez = False
-
-
-
 
     def _initialize_properties(self, bunches):
         super()._initialize_properties(bunches)
@@ -321,10 +324,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             self.r_fld,
         ]
 
-
-
-
-
     def _select_witness_bunch(self, bunches: List[ParticleBunch]) -> ParticleBunch:
         # Option A: by name convention
         for b in bunches:
@@ -333,24 +332,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Option B: assume last bunch is witness in beam-driven case
         return bunches[-1]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def _calculate_wakefield(self, bunches: List[ParticleBunch]):
-
         radial_density = self._get_radial_density(self.t * ct.c)
 
         # Get square of laser envelope
@@ -367,44 +349,52 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Store plasma history if required by the diagnostics.
         store_plasma_history = len(self.particle_diags) > 0
 
-
         if self.use_SALAME and (not self._initial_condition_done):
-        #if False:
+            # if False:
             start = time.perf_counter()
 
-
-
             witness = self._select_witness_bunch(bunches)
-        
+
             # --- build q_fixed = deposit(all non-witness) ---
             q_fixed = np.zeros_like(self.q_bunch)
             for b in bunches:
                 if b is witness:
                     continue
                 deposit_bunch_charge(
-                    b.x, b.y, b.xi, b.q,
-                    self.n_p, self.n_r, self.n_xi,
-                    self.r_fld, self.xi_fld,
-                    self.dr, self.dxi,
+                    b.x,
+                    b.y,
+                    b.xi,
+                    b.q,
+                    self.n_p,
+                    self.n_r,
+                    self.n_xi,
+                    self.r_fld,
+                    self.xi_fld,
+                    self.dr,
+                    self.dxi,
                     self.p_shape,
                     q_fixed,
                 )
-        
+
             # --- build q_var = deposit(witness only) ---
             self.q_var = np.zeros_like(self.q_bunch)
             deposit_bunch_charge(
-                witness.x, witness.y, witness.xi, witness.q,
-                self.n_p, self.n_r, self.n_xi,
-                self.r_fld, self.xi_fld,
-                self.dr, self.dxi,
+                witness.x,
+                witness.y,
+                witness.xi,
+                witness.q,
+                self.n_p,
+                self.n_r,
+                self.n_xi,
+                self.r_fld,
+                self.xi_fld,
+                self.dr,
+                self.dxi,
                 self.p_shape,
                 self.q_var,
             )
-        
+
             self.q_bunch[:] = q_fixed + self.q_var
-
-
-
 
             # 2) run SALAME IC on base grid (this updates bunches[0].w inside)
             beamloading_initial_condition(
@@ -417,7 +407,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 dxi=self.dxi,
                 n_r=self.n_r,
                 n_xi=self.n_xi,
-        
                 n_p=self.n_p,
                 ppc=self.ppc,
                 r_max=self.r_max,
@@ -432,32 +421,20 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 free_electrons_per_ion=self.free_electrons_per_ion,
                 field_diags=self.field_diags,
                 fld_arrays=self.fld_arrays,
-        
                 laser_a2=laser_a2,
                 radial_density=radial_density,
-                bunch_source_arrays=[],          # let the function init its own base slot
+                bunch_source_arrays=[],  # let the function init its own base slot
                 bunch_source_xi_indices=[],
                 bunch_source_metadata=[],
-                #bunch=bunches[0],                # target bunch you want to shape
+                # bunch=bunches[0],                # target bunch you want to shape
                 bunch=witness,  # the only bunch whose weights get updated
- 
                 # NEW: pass fixed + variable deposits separately
                 q_fixed=q_fixed,
                 q_var=self.q_var,
-
-
-
-                )
-        
-
+            )
 
             end = time.perf_counter()
             print(f"Elapsed: {end - start:.6f} s")
-
-
-
-
-
 
         # Initialize empty lists with correct type so that numba can use
         # them even if there are no bunch sources.
@@ -561,11 +538,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             bunches_without_grid = bunches
         # If not using adaptive grids, add all sources to the same array.
         if bunches_without_grid or deposit_outliers_on_base_grid:
-            #print("bunch w/o grid or deposit outliers")
-            #if not self._initial_condition_done:
+            # print("bunch w/o grid or deposit outliers")
+            # if not self._initial_condition_done:
             ##if False:
             #    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-
 
             if self.SALAME_current_flat_Ez and (not self._initial_condition_done):
                 self.b_t_bunch[:] = 0.0
@@ -587,24 +563,29 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                         self.p_shape,
                         self.q_bunch,
                     )
-              
+
                 # --- build q_var = deposit(witness only) ---
                 witness = self._select_witness_bunch(bunches)
                 self.q_var = np.zeros_like(self.q_bunch)
                 deposit_bunch_charge(
-                    witness.x, witness.y, witness.xi, witness.q,
-                    self.n_p, self.n_r, self.n_xi,
-                    self.r_fld, self.xi_fld,
-                    self.dr, self.dxi,
+                    witness.x,
+                    witness.y,
+                    witness.xi,
+                    witness.q,
+                    self.n_p,
+                    self.n_r,
+                    self.n_xi,
+                    self.r_fld,
+                    self.xi_fld,
+                    self.dr,
+                    self.dxi,
                     self.p_shape,
                     self.q_var,
                 )
 
-            #if not self._initial_condition_done:
+            # if not self._initial_condition_done:
             ##if True:
             #    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
-
-
 
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
             bunch_source_arrays.append(self.b_t_bunch)
@@ -620,11 +601,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 / s_d
             )
 
-
         # Calculate rho only if requested in the diagnostics.
         calculate_rho = any("rho" in diag for diag in self.field_diags)
-    
-        #print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
+
+        # print([np.max(bunch_source_arrays), np.min(bunch_source_arrays)])
         # Calculate plasma wakefields
         self.pp = calculate_wakefields(
             laser_a2,
@@ -651,27 +631,19 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             calculate_rho=calculate_rho,
             particle_diags=self.particle_diags,
         )
-    
-    
-    
-    
-    
-    
+
         # Add bunch density to total density.
         if calculate_rho:
             rho_bunch = -self.q_bunch[2:-2, 2:-2] / (self.r_fld / s_d)
             self.rho[2:-2, 2:-2] += rho_bunch
-    
+
         # Calculate fields on adaptive grids.
         if self.use_adaptive_grids:
             for _, grid in self.bunch_grids.items():
                 grid.calculate_fields(self.n_p, self.pp)
-    
-    
-    
+
         # After first wake solve, disable one-time beam-loading effect
         self._initial_condition_done = True
-
 
     def _reset_bunch_arrays(self):
         """Reset to zero the bunch arrays of the base grid."""
@@ -755,7 +727,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         if "q_bunch" in self.field_diags:
             diag_data["fields"].append("q_bunch")
             diag_data["q_bunch"] = {
-                "array": np.ascontiguousarray(self.q_bunch.T[2:-2, 2:-2]/k),
+                "array": np.ascontiguousarray(self.q_bunch.T[2:-2, 2:-2] / k),
                 "position": [0.5, 0.0],
                 "grid": {
                     "spacing": [self.dr, self.dxi],
@@ -764,12 +736,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 },
                 "attributes": {},
             }
-
 
         if "q_bunch_wit" in self.field_diags:
             diag_data["fields"].append("q_bunch_wit")
             diag_data["q_bunch_wit"] = {
-                "array": np.ascontiguousarray(self.q_var.T[2:-2, 2:-2]/k),
+                "array": np.ascontiguousarray(self.q_var.T[2:-2, 2:-2] / k),
                 "position": [0.5, 0.0],
                 "grid": {
                     "spacing": [self.dr, self.dxi],
@@ -778,8 +749,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 },
                 "attributes": {},
             }
-
-
 
         # Add fields from adaptive grids to openpmd diagnostics.
         if self.use_adaptive_grids:

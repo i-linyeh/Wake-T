@@ -7,7 +7,6 @@ from wake_t.particles.deposition import deposit_3d_distribution
 from wake_t.utilities.numba import njit_serial
 
 
-
 @njit_serial()
 def calculate_bunch_source_slice(q_bunch, n_r, i_xi, b_t_bunch):
     """
@@ -21,9 +20,6 @@ def calculate_bunch_source_slice(q_bunch, n_r, i_xi, b_t_bunch):
         cumsum += q_ij
         b_t_bunch[2 + i, 2 + j] = (cumsum - 0.5 * q_ij) * 1.0 / (0.5 + j)
     b_t_bunch[2 + i, 2] -= 0.25 * q_bunch[2 + i, 2] * 2.0
-
-
-
 
 
 @njit_serial()

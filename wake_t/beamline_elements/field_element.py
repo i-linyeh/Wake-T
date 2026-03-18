@@ -82,9 +82,9 @@ class FieldElement:
         opmd_diag: Optional[Union[bool, OpenPMDDiagnostics]] = False,
         diag_dir: Optional[str] = None,
         show_progress_bar: Optional[bool] = True,
-        use_SALAME: bool = False,   # <--- NEW
-        SALAME_current_flat_Ez: bool = False,   # <--- NEW
-        ) -> Union[List[ParticleBunch], List[List[ParticleBunch]]]:
+        use_SALAME: bool = False,  # <--- NEW
+        SALAME_current_flat_Ez: bool = False,  # <--- NEW
+    ) -> Union[List[ParticleBunch], List[List[ParticleBunch]]]:
         """
         Track bunch through element.
 
@@ -131,16 +131,12 @@ class FieldElement:
         elif not opmd_diag:
             opmd_diag = None
 
-
         # NEW: propagate SALAME toggle to fields (wakefield model)
         for fld in self.fields:
             if hasattr(fld, "use_SALAME"):
                 fld.use_SALAME = use_SALAME
             if hasattr(fld, "SALAME_current_flat_Ez"):
                 fld.SALAME_current_flat_Ez = SALAME_current_flat_Ez
-
-
-
 
         # Create tracker.
         tracker = Tracker(

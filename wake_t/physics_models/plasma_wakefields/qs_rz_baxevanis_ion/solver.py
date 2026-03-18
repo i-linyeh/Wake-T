@@ -32,7 +32,6 @@ from wake_t.utilities.numba import njit_serial
 from .plasma_particle_container import PlasmaParticleContainer
 
 
-
 def deepcopy_pp_state(pp_state):
     """
     Deep-copy serialized plasma state: tuple(species0_tuple, species1_tuple,...)
@@ -48,10 +47,6 @@ def deepcopy_pp_state(pp_state):
                 sp2.append(item)
         out.append(tuple(sp2))
     return tuple(out)
-
-
-
-
 
 
 @njit_serial
@@ -80,15 +75,17 @@ def evolve_window_inplace(
     chi,
     store_plasma_history,
     particle_diags,
-    start_slice_i,   # inclusive
-    stop_slice_i,    # inclusive (<= start_slice_i)
+    start_slice_i,  # inclusive
+    stop_slice_i,  # inclusive (<= start_slice_i)
 ):
     """
     Resume from an existing pp_serialized_list and evolve only a small window.
     Mutates pp_serialized_list arrays in-place.
     """
     ions_computed = False
-    pp_species_list = [PlasmaParticleContainer(species) for species in pp_serialized_list]
+    pp_species_list = [
+        PlasmaParticleContainer(species) for species in pp_serialized_list
+    ]
 
     for slice_i in range(start_slice_i, stop_slice_i - 1, -1):
         pp_sort(pp_species_list)
@@ -142,20 +139,6 @@ def evolve_window_inplace(
 
         if slice_i > 0:
             pp_evolve(pp_species_list, dxi)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @njit_serial
@@ -464,17 +447,9 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-
-
-
-
-
-
-
-
 def calculate_wakefields_ez_km1_from_cache(
-    pp_state_kp1,            # cached plasma state "after slice k+1" (ready for k)
-    k,                       # we are varying q_bunch at slice k, want Ez at k-1
+    pp_state_kp1,  # cached plasma state "after slice k+1" (ready for k)
+    k,  # we are varying q_bunch at slice k, want Ez at k-1
     laser_a2,
     r_max,
     xi_min,
@@ -541,38 +516,30 @@ def calculate_wakefields_ez_km1_from_cache(
         psi,
         B_t,
         p_shape,
-        False,           # calculate_rho off
+        False,  # calculate_rho off
         rho,
         rho_e,
         rho_i,
         chi,
-        False,           # no history
+        False,  # no history
         ("none",),
         k,
         k - 2,
     )
 
-
-
-
-
     # compute Ez(k-1,r) using centered stencil in psi
     E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
-    psi_k   = psi[2 + k,   :]      # includes guard r
-    psi_km2 = psi[2 + k-2, :]      # includes guard r
+    psi_k = psi[2 + k, :]  # includes guard r
+    psi_km2 = psi[2 + k - 2, :]  # includes guard r
     Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
 
-    psi_km1 = psi[2 + k-1, :]      # includes guard r
+    psi_km1 = psi[2 + k - 1, :]  # includes guard r
 
-    #print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
-    #print("psi(km1)   axis/mean/min/max:", psi_km1[0], psi_km1.mean(), psi_km1.min(), psi_km1.max())
-    #print("psi(km2)   axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
+    # print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
+    # print("psi(km1)   axis/mean/min/max:", psi_km1[0], psi_km1.mean(), psi_km1.min(), psi_km1.max())
+    # print("psi(km2)   axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
 
     return Ez_r_km1
-
-
-
-
 
 
 def build_pp_cache_at_kp1(
@@ -628,8 +595,12 @@ def build_pp_cache_at_kp1(
         nabla_a2 = np.zeros((0, 0))
 
     init_list = [
-        {"charge": free_electrons_per_ion,  "mass": free_electrons_per_ion, "is_ion": False},
-        {"charge": -free_electrons_per_ion, "mass": ion_mass / ct.m_e,       "is_ion": True},
+        {
+            "charge": free_electrons_per_ion,
+            "mass": free_electrons_per_ion,
+            "is_ion": False,
+        },
+        {"charge": -free_electrons_per_ion, "mass": ion_mass / ct.m_e, "is_ion": True},
     ]
     species_list = pp_initialize(
         init_list,
@@ -638,7 +609,7 @@ def build_pp_cache_at_kp1(
         dr,
         radial_density_normalized,
         ion_motion,
-        False,               # store_history OFF (critical for cheap copies)
+        False,  # store_history OFF (critical for cheap copies)
         plasma_pusher,
     )
     pp_cache = tuple(s.serialize() for s in species_list)
@@ -646,25 +617,33 @@ def build_pp_cache_at_kp1(
     # evolve tail -> k_tail+1 to make cache "ready for k_tail"
     evolve_window_inplace(
         pp_cache,
-        n_xi, n_r, dxi, dr, r_fld_n,
-        has_laser_source, laser_a2, nabla_a2,
+        n_xi,
+        n_r,
+        dxi,
+        dr,
+        r_fld_n,
+        has_laser_source,
+        laser_a2,
+        nabla_a2,
         True,
         tuple(bunch_source_arrays),
         tuple(bunch_source_xi_indices),
         tuple(bunch_source_metadata),
         max_gamma,
-        psi, B_t,
+        psi,
+        B_t,
         p_shape,
-        False, rho, rho_e, rho_i,
+        False,
+        rho,
+        rho_e,
+        rho_i,
         chi,
-        False, ("none",),
+        False,
+        ("none",),
         n_xi - 1,
         k_tail + 1,
     )
     return pp_cache
-
-
-
 
 
 def commit_cache_one_slice(
@@ -709,18 +688,29 @@ def commit_cache_one_slice(
     # evolve exactly slice k
     evolve_window_inplace(
         pp_cache,
-        n_xi, n_r, dxi, dr, r_fld_n,
-        has_laser_source, laser_a2, nabla_a2,
+        n_xi,
+        n_r,
+        dxi,
+        dr,
+        r_fld_n,
+        has_laser_source,
+        laser_a2,
+        nabla_a2,
         True,
         tuple(bunch_source_arrays),
         tuple(bunch_source_xi_indices),
         tuple(bunch_source_metadata),
         max_gamma,
-        psi, B_t,
+        psi,
+        B_t,
         p_shape,
-        False, rho, rho_e, rho_i,
+        False,
+        rho,
+        rho_e,
+        rho_i,
         chi,
-        False, ("none",),
-        k, k,
+        False,
+        ("none",),
+        k,
+        k,
     )
-
