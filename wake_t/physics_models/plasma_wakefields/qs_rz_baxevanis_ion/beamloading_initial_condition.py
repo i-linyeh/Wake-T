@@ -74,7 +74,6 @@ def beamloading_initial_condition(
         s_d = ge.plasma_skin_depth(n_p * 1e-6)
         bunch_source_metadata.append(np.array([r_fld[0], r_fld[-1] + 2 * dr, dr]) / s_d)
 
-
     def q_bunch_line_from_qbunch(qb2d: np.ndarray) -> np.ndarray:
         qb = qb2d[2:-2, 2:-2]  # (n_xi,n_r)
         return np.sum(qb, axis=1)
@@ -276,7 +275,7 @@ def beamloading_initial_condition(
                 g_max, Ez_max_km1 = g_new, Ez_try_km1
 
             rel = np.abs(Ez_try_km1 - Ez_target) / (np.abs(Ez_target) + 1e-300)
-            #qb_new, Ez_new_km1 = qb_try, Ez_try_km1
+            # qb_new, Ez_new_km1 = qb_try, Ez_try_km1
             qb_new = qb_try
             print(f"{rel=}")
             if rel < tol:

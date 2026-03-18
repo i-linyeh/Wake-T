@@ -19,7 +19,6 @@ import numpy as np
 from wake_t.utilities.numba import njit_serial, prange
 
 
-
 @njit_serial()
 def inverse_deposit_3d_distribution(
     z,

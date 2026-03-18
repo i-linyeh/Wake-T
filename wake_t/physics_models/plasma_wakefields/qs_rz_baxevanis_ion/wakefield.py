@@ -21,8 +21,6 @@ from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 
 
-
-
 import time
 
 from .beamloading_initial_condition import beamloading_initial_condition
