@@ -241,7 +241,6 @@ def beamloading_initial_condition(
                 break
 
         qb_new = qb_var_current
-        Ez_new_km1 = Ez_min_km1
         for _ in range(max_iter):
             den = np.abs(Ez_max_km1 - Ez_min_km1)
             if den == 0.0:
