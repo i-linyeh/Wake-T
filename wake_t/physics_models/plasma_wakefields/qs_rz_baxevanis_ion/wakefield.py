@@ -8,14 +8,10 @@ import aptools.plasma_accel.general_equations as ge
 
 from .solver import (
     calculate_wakefields,
-    calculate_wakefields_ez_km1_from_cache,
-    build_pp_cache_at_kp1,
-    commit_cache_one_slice,
 )
 from .b_theta_bunch import (
     calculate_bunch_source,
     deposit_bunch_charge,
-    calculate_bunch_source_slice,
 )
 from .adaptive_grid import AdaptiveGrid
 from .utils import calculate_laser_a2
@@ -24,11 +20,8 @@ from wake_t.physics_models.laser.laser_pulse import LaserPulse
 from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 
-from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution
-from wake_t.particles.deposition import deposit_3d_distribution
 
 
-from .utils import longitudinal_gradient, radial_gradient
 
 import time
 

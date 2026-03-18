@@ -17,9 +17,7 @@ import math
 import numpy as np
 
 from wake_t.utilities.numba import njit_serial, prange
-from wake_t.particles.deposition import deposit_3d_distribution
 
-from scipy.sparse.linalg import LinearOperator, lsqr
 
 
 @njit_serial()
