@@ -336,12 +336,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Store plasma history if required by the diagnostics.
         store_plasma_history = len(self.particle_diags) > 0
 
-        
         witness = self._select_witness_bunch(bunches)
         use_salame = getattr(witness, "do_salame", False)
         if use_salame and (not self._initial_condition_done):
             start = time.perf_counter()
-
 
             # --- build q_fixed = deposit(all non-witness) ---
             q_fixed = np.zeros_like(self.q_bunch)
@@ -530,7 +528,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # if not self._initial_condition_done:
             ##if False:
             #    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-            if getattr(witness, "salame_current_flat_ez", False) and (not self._initial_condition_done):
+            if getattr(witness, "salame_current_flat_ez", False) and (
+                not self._initial_condition_done
+            ):
                 self.b_t_bunch[:] = 0.0
             else:
                 self._reset_bunch_arrays()

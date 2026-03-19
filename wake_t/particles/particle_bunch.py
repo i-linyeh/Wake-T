@@ -111,7 +111,7 @@ class ParticleBunch:
         self.__rk4_arrays_allocated = False
         self.do_salame = False
         self.salame_current_flat_ez = False
-        self.salame_n_iter = 10 
+        self.salame_n_iter = 10
         self.salame_relative_tolerance = 1e-4
 
     @property

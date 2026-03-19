@@ -207,12 +207,11 @@ def beamloading_initial_condition(
 
     print(f"{np.sum(bunch_source_arrays)=}")
 
-    #max_iter = 100
-    #tol = 1e-4
+    # max_iter = 100
+    # tol = 1e-4
 
     max_iter = getattr(bunch, "salame_n_iter", 10)
     tol = getattr(bunch, "salame_relative_tolerance", 1e-4)
-
 
     for k in range(k_tail, support[0], -1):
         print(k)
