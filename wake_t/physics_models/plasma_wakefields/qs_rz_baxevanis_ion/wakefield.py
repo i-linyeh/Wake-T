@@ -336,7 +336,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Store plasma history if required by the diagnostics.
         store_plasma_history = len(self.particle_diags) > 0
 
-        witness = self._select_witness_bunch(bunches)
+        witness = self._select_witness_bunch(bunches) if bunches else None
         use_salame = getattr(witness, "do_salame", False)
         if use_salame and (not self._initial_condition_done):
             start = time.perf_counter()
