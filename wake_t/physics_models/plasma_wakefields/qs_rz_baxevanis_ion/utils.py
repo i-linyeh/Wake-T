@@ -34,6 +34,31 @@ def calculate_rho(q, w, pz, gamma, rho):
         rho[i] = q * w_i / (1.0 - pz_i * inv_gamma_i)
 
 
+
+
+
+@njit_serial()
+def longitudinal_backward_gradient(f, dz, dz_f):
+    """Calculate the longitudinal gradient using a backward (on
+e-sided) difference.
+
+    Uses dz_f[i] = (f[i] - f[i-1]) / dz for all interior and ri
+ght-boundary
+    points, and a forward difference at i=0. This avoids the od
+d-even
+    decoupling of the centered stencil and is consistent with t
+he single-slice
+    Ez evaluation used in the SALAME iteration.
+    """
+    nz, nr = f.shape
+    inv_dz = 1.0 / dz
+    for j in range(nr):
+        dz_f[0, j] = (f[1, j] - f[0, j]) * inv_dz  # forward at left edge
+        for i in range(1, nz):
+            dz_f[i, j] = (f[i, j] - f[i - 1, j]) * inv_dz
+
+
+
 @njit_serial()
 def longitudinal_gradient(f, dz, dz_f):
     """Calculate the longitudinal gradient of a 2D array.

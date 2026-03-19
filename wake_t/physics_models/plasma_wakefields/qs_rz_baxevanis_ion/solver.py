@@ -25,7 +25,7 @@ from .plasma_particles import (
     pp_evolve,
     pp_get_history,
 )
-from .utils import longitudinal_gradient, radial_gradient
+from .utils import longitudinal_gradient, longitudinal_backward_gradient, radial_gradient
 
 from wake_t.utilities.numba import njit_serial
 
@@ -437,7 +437,8 @@ def calculate_wakefields(
 
     # Calculate derived fields (E_z, W_r, and E_r).
     E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
-    longitudinal_gradient(psi[2:-2, 2:-2], dxi, E_z[2:-2, 2:-2])
+    #longitudinal_gradient(psi[2:-2, 2:-2], dxi, E_z[2:-2, 2:-2])
+    longitudinal_backward_gradient(psi[2:-2, 2:-2], dxi, E_z[2:-2, 2:-2])
     radial_gradient(psi[2:-2, 2:-2], dr, E_r[2:-2, 2:-2])
     E_r -= B_t
     E_z *= -E_0
@@ -531,7 +532,9 @@ def calculate_wakefields_ez_km1_from_cache(
     E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
     psi_k = psi[2 + k, :]  # includes guard r
     psi_km2 = psi[2 + k - 2, :]  # includes guard r
-    Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
+    #Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
+    psi_km1 = psi[2 + k - 1, :]  # includes guard r
+    Ez_r_km1 = -(psi_km1 - psi_km2) / (1.0 * dxi) * E_0
 
     # psi_km1 = psi[2 + k - 1, :]  # includes guard r
 
