@@ -289,12 +289,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         )
 
         # --- one-time init & one-time application flags ---
-        # self._did_init_ic = False              # init hook has been executed?
-        # self._apply_beamloading_this_solve = True  # apply beam-loading only on first solve?
+        # apply beam-loading only on first solve
         self._initial_condition_done = False
-
-        self.use_SALAME = False
-        self.SALAME_current_flat_Ez = False
 
     def _initialize_properties(self, bunches):
         super()._initialize_properties(bunches)
@@ -316,9 +312,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         ]
 
     def _select_witness_bunch(self, bunches: List[ParticleBunch]) -> ParticleBunch:
-        # Option A: by name convention
+        # Option A: by do_salame attribute (highest priority)
         for b in bunches:
-            if b.name.lower() in ["witness", "wit", "beam_witness"]:
+            if getattr(b, "do_salame", False):
                 return b
         # Option B: assume last bunch is witness in beam-driven case
         return bunches[-1]
@@ -340,11 +336,12 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Store plasma history if required by the diagnostics.
         store_plasma_history = len(self.particle_diags) > 0
 
-        if self.use_SALAME and (not self._initial_condition_done):
-            # if False:
+        
+        witness = self._select_witness_bunch(bunches)
+        use_salame = getattr(witness, "do_salame", False)
+        if use_salame and (not self._initial_condition_done):
             start = time.perf_counter()
 
-            witness = self._select_witness_bunch(bunches)
 
             # --- build q_fixed = deposit(all non-witness) ---
             q_fixed = np.zeros_like(self.q_bunch)
@@ -533,8 +530,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # if not self._initial_condition_done:
             ##if False:
             #    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-
-            if self.SALAME_current_flat_Ez and (not self._initial_condition_done):
+            if getattr(witness, "salame_current_flat_ez", False) and (not self._initial_condition_done):
                 self.b_t_bunch[:] = 0.0
             else:
                 self._reset_bunch_arrays()
