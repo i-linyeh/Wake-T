@@ -117,6 +117,9 @@ def beamloading_initial_condition(
         calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
         bunch_source_arrays[0] = b_t_bunch
 
+
+        
+        use_avg_psi = getattr(bunch, "use_avg_psi", True)
         Ez_r = calculate_wakefields_ez_km1_from_cache(
             pp_cache,
             k,
@@ -135,6 +138,7 @@ def beamloading_initial_condition(
             bunch_source_xi_indices=bunch_source_xi_indices,
             bunch_source_metadata=bunch_source_metadata,
             fld_arrays=fld_arrays,
+            use_avg_psi=use_avg_psi,
         )
         # weight using witness slice only:
         return Ez_weighted_at_slice(Ez_r, qb_var2d, km1)

@@ -113,6 +113,7 @@ class ParticleBunch:
         self.salame_current_flat_ez = False
         self.salame_n_iter = 10
         self.salame_relative_tolerance = 1e-4
+        self.use_avg_psi = True
 
     @property
     def q(self) -> np.ndarray:
