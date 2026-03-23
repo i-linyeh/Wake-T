@@ -339,6 +339,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         witness = self._select_witness_bunch(bunches) if bunches else None
         use_salame = getattr(witness, "do_salame", False)
         if use_salame and (not self._initial_condition_done):
+            print(f"Starting SALAME")
             start = time.perf_counter()
 
             # --- build q_fixed = deposit(all non-witness) ---
@@ -420,7 +421,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             )
 
             end = time.perf_counter()
-            print(f"Elapsed: {end - start:.6f} s")
+            print(f"SALAME elapsed: {end - start:.6f} s")
 
         # Initialize empty lists with correct type so that numba can use
         # them even if there are no bunch sources.

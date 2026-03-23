@@ -63,8 +63,8 @@ def beamloading_initial_condition(
       - It assumes q_bunch/b_t_bunch include guard cells.
     """
 
-    print(f"{np.sum(bunch_source_arrays)=}")
-    print(f"{np.sum(b_t_bunch)=}")
+    #print(f"{np.sum(bunch_source_arrays)=}")
+    #print(f"{np.sum(b_t_bunch)=}")
 
     # --- keep your existing bunch_source init ---
     if len(bunch_source_arrays) == 0:
@@ -188,7 +188,7 @@ def beamloading_initial_condition(
     )
 
     Ez_target = solve_Ez_weighted_km1_cached(qb_current, pp_cache, k_tail)
-    print(f"{Ez_target=}")
+    #print(f"{Ez_target=}")
 
     # Build plasma particle cache to k_tail+1 slice. Then we can do the SALAME iteration.
     commit_cache_one_slice(
@@ -209,7 +209,7 @@ def beamloading_initial_condition(
         fld_arrays=fld_arrays,
     )
 
-    print(f"{np.sum(bunch_source_arrays)=}")
+    #print(f"{np.sum(bunch_source_arrays)=}")
 
     # max_iter = 100
     # tol = 1e-4
@@ -218,13 +218,17 @@ def beamloading_initial_condition(
     tol = getattr(bunch, "salame_relative_tolerance", 1e-4)
 
     for k in range(k_tail, support[0], -1):
-        print(k)
+        #print(k)
         if np.abs(g_line_var0[k]) == 0.0:
             continue
 
+        if Ez_target>0:
+            print("Ez_target is positive. Wrong bunch position.")
+            break
+
         g_min = -1e-100
         g_max = 5.0 * g_line_var0[k]
-        print(f"{g_max=}")
+        #print(f"{g_max=}")
 
         qb_min = set_slice_line_charge_var(qb_var_current, k, g_min)
         Ez_min_km1 = solve_Ez_weighted_km1_cached(qb_min, pp_cache, k - 1)
@@ -232,18 +236,18 @@ def beamloading_initial_condition(
         qb_max = set_slice_line_charge_var(qb_var_current, k, g_max)
         Ez_max_km1 = solve_Ez_weighted_km1_cached(qb_max, pp_cache, k - 1)
 
-        print("g_old =", q_bunch_line_from_qbunch(qb_var_current)[k])
-        print("g_min slice =", q_bunch_line_from_qbunch(qb_min)[k])
-        print("g_max slice =", q_bunch_line_from_qbunch(qb_max)[k])
-        print(f"{Ez_max_km1=}")
-        print(f"{Ez_min_km1=}")
+        #print("g_old =", q_bunch_line_from_qbunch(qb_var_current)[k])
+        #print("g_min slice =", q_bunch_line_from_qbunch(qb_min)[k])
+        #print("g_max slice =", q_bunch_line_from_qbunch(qb_max)[k])
+        #print(f"{Ez_max_km1=}")
+        #print(f"{Ez_min_km1=}")
 
         while np.abs(Ez_max_km1) > np.abs(Ez_target):
-            print(f"{g_max=}")
+            #print(f"{g_max=}")
             g_max *= 5.0
             qb_max = set_slice_line_charge_var(qb_var_current, k, g_max)
             Ez_max_km1 = solve_Ez_weighted_km1_cached(qb_max, pp_cache, k - 1)
-            print(f"{Ez_max_km1=}")
+            #print(f"{Ez_max_km1=}")
             if g_max == 0.0 or not np.isfinite(g_max):
                 break
 
@@ -253,27 +257,27 @@ def beamloading_initial_condition(
             if den == 0.0:
                 break
 
-            print(f"{Ez_max_km1=}")
-            print(f"{Ez_min_km1=}")
-            print(f"{Ez_target=}")
+            #print(f"{Ez_max_km1=}")
+            #print(f"{Ez_min_km1=}")
+            #print(f"{Ez_target=}")
 
             if Ez_target < Ez_min_km1:
                 g_new = g_min
                 qb_try = set_slice_line_charge_var(qb_var_current, k, g_new)
                 Ez_try_km1 = solve_Ez_weighted_km1_cached(qb_try, pp_cache, k - 1)
                 qb_new = qb_try
-                print(f"{Ez_try_km1=}")
-                print("Need positrons for this slice...")
+                #print(f"{Ez_try_km1=}")
+                print(f"Need positrons for slice {k} at xi= {xi_fld[k]}. The charge at this slice is set as 0.")
                 break
 
             wg = np.abs(Ez_target - Ez_min_km1) / den
-            print(f"{wg=}")
+            #print(f"{wg=}")
             g_new = wg * g_max + (1.0 - wg) * g_min
 
             qb_try = set_slice_line_charge_var(qb_var_current, k, g_new)
             Ez_try_km1 = solve_Ez_weighted_km1_cached(qb_try, pp_cache, k - 1)
 
-            print(f"{Ez_try_km1=}")
+            #print(f"{Ez_try_km1=}")
 
             if np.abs(Ez_try_km1) > np.abs(Ez_target):
                 g_min, Ez_min_km1 = g_new, Ez_try_km1
@@ -282,7 +286,7 @@ def beamloading_initial_condition(
 
             rel = np.abs(Ez_try_km1 - Ez_target) / (np.abs(Ez_target) + 1e-300)
             qb_new = qb_try
-            print(f"{rel=}")
+            #print(f"{rel=}")
             if rel < tol:
                 break
 
@@ -290,7 +294,7 @@ def beamloading_initial_condition(
 
         q_bunch[:, :] = qb_total_from_var(qb_var_current)
 
-        print(f"{np.sum(bunch_source_arrays)=}")
+        #print(f"{np.sum(bunch_source_arrays)=}")
 
         commit_cache_one_slice(
             pp_cache,
@@ -323,36 +327,6 @@ def beamloading_initial_condition(
     if not np.all(np.isfinite(chi_int)):
         chi_int[~np.isfinite(chi_int)] = 0.0
 
-    qb_var_target = np.zeros_like(qb_var_current)
-    qb_var_target[2:-2, 2:-2] = qb_var_current[2:-2, 2:-2]
-
-    print(np.sum(qb_var_target))
-
-    count_grid = np.zeros_like(qb_var_current)
-    ones = np.ones_like(bunch.xi)
-
-    deposit_3d_distribution(
-        bunch.xi,
-        bunch.x,
-        bunch.y,
-        ones,
-        xi_fld[0],
-        r_fld[0],
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        count_grid,
-        p_shape="cubic",
-        use_ruyten=True,
-        r_min_deposit=0.0,
-    )
-
-    mask = count_grid > 0
-    print("sum qb_var_current total      =", np.sum(qb_var_current))
-    print("sum qb_var_current where mask =", np.sum(qb_var_current[mask]))
-    print("sum qb_var_current off-support =", np.sum(qb_var_current[~mask]))
-    print("active support frac (grid)    =", np.mean(mask))
 
     # Simple normalized gather (correct pseudoinverse for dense particle coverage)
     q_gathered, _ = inverse_deposit_3d_distribution(
@@ -410,30 +384,6 @@ def beamloading_initial_condition(
     eps = 1e-30
     q_inv = q_gathered / np.maximum(count_p, eps)
 
-    # 2) Check redeposit diff
-    rho1 = np.zeros_like(qb_var_current)
-    deposit_3d_distribution(
-        bunch.xi,
-        bunch.x,
-        bunch.y,
-        q_inv,
-        xi_fld[0],
-        r_fld[0],
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        rho1,
-        p_shape="cubic",
-        use_ruyten=True,
-        r_min_deposit=0.0,
-    )
-    absdiff = np.max(np.abs(rho1 - qb_var_current))
-    reldiff = absdiff / (np.max(np.abs(qb_var_current)) + 1e-30)
-    # print("LSQR info:", info)
-    print("inverse redeposit max abs diff:", absdiff)
-    print("inverse redeposit rel diff    :", reldiff)
-    print("sum grid:", np.sum(qb_var_current), "sum inv:", np.sum(q_inv))
 
     s_d = ct.c / np.sqrt(ct.e**2 * n_p / (ct.m_e * ct.epsilon_0))
 
@@ -443,7 +393,7 @@ def beamloading_initial_condition(
     w_salame = q_normalized / bunch.q_species
     bunch.w = w_salame
 
-    print([np.max(q_bunch), np.min(q_bunch)])
+    #print([np.max(q_bunch), np.min(q_bunch)])
 
     # b_t_bunch[:] = 0.0
     # q_bunch[:] = 0
