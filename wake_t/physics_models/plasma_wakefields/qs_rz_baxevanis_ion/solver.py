@@ -465,7 +465,7 @@ def calculate_wakefields_ez_km1_from_cache(
     bunch_source_xi_indices,
     bunch_source_metadata,
     fld_arrays,
-    use_avg_psi
+    use_avg_psi,
 ):
     """
     Starting from cached plasma state at k+1, evolve only slices k..k-2
@@ -533,13 +533,12 @@ def calculate_wakefields_ez_km1_from_cache(
     psi_k = psi[2 + k, :]  # includes guard r
     psi_km2 = psi[2 + k - 2, :]  # includes guard r
     psi_km1 = psi[2 + k - 1, :]  # includes guard r
-    
+
     if not use_avg_psi:
         Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
     else:
-        psi_ref = (psi_k+psi_km1)/2  # includes guard r
+        psi_ref = (psi_k + psi_km1) / 2  # includes guard r
         Ez_r_km1 = -(psi_ref - psi_km2) / (1.5 * dxi) * E_0
-    
 
     # psi_km1 = psi[2 + k - 1, :]  # includes guard r
 

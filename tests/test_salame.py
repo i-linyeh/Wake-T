@@ -45,9 +45,8 @@ def test_salame(show=False, plot=False):
 
         ez_bunch_weighted_nonzero = ez_bunch_weighted[ez_bunch_weighted != 0]
 
-        residual_sum = (
-            np.sum(np.abs(ez_bunch_weighted_nonzero - ez_target))
-            / (np.abs(ez_target) * len(ez_bunch_weighted_nonzero))
+        residual_sum = np.sum(np.abs(ez_bunch_weighted_nonzero - ez_target)) / (
+            np.abs(ez_target) * len(ez_bunch_weighted_nonzero)
         )
 
         assert residual_sum < 0.2
@@ -300,16 +299,14 @@ def get_witness_current_and_weighted_ez(diag_dir, iteration=0):
     g_xi = np.sum(rho_phys, axis=1)
     i_z = g_xi / dz * sc.c
 
-    ez_zr = ez[int(nr / 2):, :].T
+    ez_zr = ez[int(nr / 2) :, :].T
     qb = rho_phys
     w = np.abs(qb)
     wsum = np.sum(w, axis=1)
 
     ez_bunch_weighted = np.zeros(ez_zr.shape[0], dtype=float)
     mask = wsum > 0
-    ez_bunch_weighted[mask] = (
-        np.sum(ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
-    )
+    ez_bunch_weighted[mask] = np.sum(ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
 
     return z, i_z, ez_bunch_weighted, z_part
 
