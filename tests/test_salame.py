@@ -49,8 +49,9 @@ def test_salame(show=False, plot=False):
             np.abs(ez_target) * len(ez_bunch_weighted_nonzero)
         )
 
-        assert residual_sum < 0.2
-
+        if residual_sum >= 0.2:
+            raise AssertionError(f"Residual too large: {residual_sum}")
+       
         if show:
             print(f"Ez_target = {ez_target:.6e}")
             print(f"residual_sum = {residual_sum:.6e}")
