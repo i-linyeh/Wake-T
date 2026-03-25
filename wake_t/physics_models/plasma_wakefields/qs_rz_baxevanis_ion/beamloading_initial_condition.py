@@ -160,9 +160,9 @@ def beamloading_initial_condition(
     # overwrite base-grid slot (index 0)
     bunch_source_arrays[0] = b_t_bunch
 
-    # Get Ez_target at k_tail. We build plasma paticle cache to k_tail+2 slice. Then solve_Ez_weighted_km1_cached evolve k_tail+1, k_tail, k_tail-1 to get Ez at k_tail
+    # Get Ez_target at k_tail-2. We build plasma paticle cache to k_tail slice. Then solve_Ez_weighted_km1_cached evolve k_tail-1, k_tail-2, k_tail-3 to get Ez at k_tail-2
     pp_cache = build_pp_cache_at_kp1(
-        k_tail + 1,
+        k_tail-2,
         laser_a2,
         r_max,
         xi_min,
@@ -185,27 +185,27 @@ def beamloading_initial_condition(
         fld_arrays=fld_arrays,
     )
 
-    Ez_target = solve_Ez_weighted_km1_cached(qb_current, pp_cache, k_tail)
+    Ez_target = solve_Ez_weighted_km1_cached(qb_current, pp_cache, k_tail-3)
     # print(f"{Ez_target=}")
 
-    # Build plasma particle cache to k_tail+1 slice. Then we can do the SALAME iteration.
-    commit_cache_one_slice(
-        pp_cache,
-        k_tail + 1,
-        laser_a2,
-        r_max,
-        xi_min,
-        xi_max,
-        n_r,
-        n_xi,
-        n_p,
-        p_shape=p_shape,
-        max_gamma=max_gamma,
-        bunch_source_arrays=bunch_source_arrays,
-        bunch_source_xi_indices=bunch_source_xi_indices,
-        bunch_source_metadata=bunch_source_metadata,
-        fld_arrays=fld_arrays,
-    )
+    ## Build plasma particle cache to k_tail+1 slice. Then we can do the SALAME iteration.
+    #commit_cache_one_slice(
+    #    pp_cache,
+    #    k_tail + 1,
+    #    laser_a2,
+    #    r_max,
+    #    xi_min,
+    #    xi_max,
+    #    n_r,
+    #    n_xi,
+    #    n_p,
+    #    p_shape=p_shape,
+    #    max_gamma=max_gamma,
+    #    bunch_source_arrays=bunch_source_arrays,
+    #    bunch_source_xi_indices=bunch_source_xi_indices,
+    #    bunch_source_metadata=bunch_source_metadata,
+    #    fld_arrays=fld_arrays,
+    #)
 
     # print(f"{np.sum(bunch_source_arrays)=}")
 
@@ -215,7 +215,7 @@ def beamloading_initial_condition(
     max_iter = getattr(bunch, "salame_n_iter", 10)
     tol = getattr(bunch, "salame_relative_tolerance", 1e-4)
 
-    for k in range(k_tail, support[0], -1):
+    for k in range(k_tail-3, support[0], -1):
         # print(k)
         if np.abs(g_line_var0[k]) == 0.0:
             continue
