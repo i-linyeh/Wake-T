@@ -50,7 +50,7 @@ def deepcopy_pp_state(pp_state):
 
 
 @njit_serial
-def evolve_window_inplace(
+def evolve_one_step(
     pp_serialized_list,
     n_xi,
     n_r,
@@ -75,18 +75,26 @@ def evolve_window_inplace(
     chi,
     store_plasma_history,
     particle_diags,
-    start_slice_i,  # inclusive
-    stop_slice_i,  # inclusive (<= start_slice_i)
+    start_slice_i,
+    stop_slice_i,
 ):
     """
-    Resume from an existing pp_serialized_list and evolve only a small window.
-    Mutates pp_serialized_list arrays in-place.
+    Evolve the plasma from slice start_slice_i down to stop_slice_i (inclusive).
+
+    For performance reasons, this is done in a single JIT-compiled
+    function to minimize the number of Python-to-Numba function calls.
+
+    pp_serialized_list is passed in as a Tuple[Tuple[np.ndarray]]
+    instead of a class so that Numba can cache the JIT compiled function.
+
+    See calculate_wakefields() for parameters.
     """
     ions_computed = False
     pp_species_list = [
         PlasmaParticleContainer(species) for species in pp_serialized_list
     ]
 
+    # Evolve plasma from right to left over the requested slice window.
     for slice_i in range(start_slice_i, stop_slice_i - 1, -1):
         pp_sort(pp_species_list)
 
@@ -129,104 +137,6 @@ def evolve_window_inplace(
         elif "w" in particle_diags:
             pp_calculate_weights(pp_species_list, ions_computed)
 
-        if has_laser_source:
-            pp_deposit_chi(pp_species_list, shape, chi[slice_i + 2], r_fld, n_r, dr)
-
-        ions_computed = True
-
-        if store_plasma_history:
-            pp_store_current_step(pp_species_list, particle_diags)
-
-        if slice_i > 0:
-            pp_evolve(pp_species_list, dxi)
-
-
-@njit_serial
-def evolve_one_step(
-    pp_serialized_list,
-    n_xi,
-    n_r,
-    dxi,
-    dr,
-    r_fld,
-    has_laser_source,
-    laser_a2,
-    nabla_a2,
-    has_beam_source,
-    bunch_source_arrays,
-    bunch_source_xi_indices,
-    bunch_source_metadata,
-    max_gamma,
-    psi,
-    B_t,
-    shape,
-    calculate_rho,
-    rho,
-    rho_e,
-    rho_i,
-    chi,
-    store_plasma_history,
-    particle_diags,
-):
-    """
-    Compute the wakefield by evolving the plasma over all zeta slices.
-    For performance reasons, this is done in a single JIT-compiled
-    function to minimize the number of Python-to-Numba function calls.
-
-    pp_serialized_list is passed in as a Tuple[Tuple[np.ndarray]]
-    instead of a class so that Numba can cache the JIT compiled function.
-
-    See calculate_wakefields() for parameters.
-    """
-    ions_computed = False
-    pp_species_list = [
-        PlasmaParticleContainer(species) for species in pp_serialized_list
-    ]
-
-    # Evolve plasma from right to left and calculate psi, b_t_bar, rho and
-    # chi on a grid.
-    for step in range(n_xi):
-        slice_i = n_xi - step - 1
-        pp_sort(pp_species_list)
-
-        if has_laser_source:
-            pp_gather_laser_sources(
-                pp_species_list,
-                laser_a2[slice_i + 2],
-                nabla_a2[slice_i + 2],
-                r_fld[0],
-                r_fld[-1],
-                dr,
-            )
-        if has_beam_source:
-            pp_gather_bunch_sources(
-                pp_species_list,
-                bunch_source_arrays,
-                bunch_source_xi_indices,
-                bunch_source_metadata,
-                slice_i,
-            )
-
-        pp_calculate_fields(pp_species_list, ions_computed, max_gamma)
-
-        pp_calculate_psi_at_grid(pp_species_list, r_fld, psi[slice_i + 2, 2:-2])
-
-        pp_calculate_b_theta_at_grid(pp_species_list, r_fld, B_t[slice_i + 2, 2:-2])
-
-        if calculate_rho:
-            pp_deposit_rho(
-                pp_species_list,
-                ions_computed,
-                shape,
-                rho[slice_i + 2],
-                rho_e[slice_i + 2],
-                rho_i[slice_i + 2],
-                r_fld,
-                n_r,
-                dr,
-            )
-        elif "w" in particle_diags:
-            pp_calculate_weights(pp_species_list, ions_computed)
         if has_laser_source:
             pp_deposit_chi(pp_species_list, shape, chi[slice_i + 2], r_fld, n_r, dr)
 
@@ -433,6 +343,8 @@ def calculate_wakefields(
         chi,
         store_plasma_history,
         tuple(particle_diags),
+        n_xi - 1,
+        0,
     )
 
     # Calculate derived fields (E_z, W_r, and E_r).
@@ -499,7 +411,7 @@ def calculate_wakefields_ez_km1_from_cache(
     pp_trial = deepcopy_pp_state(pp_state_kp1)
 
     # evolve k, k-1, k-2 (need k>=2)
-    evolve_window_inplace(
+    evolve_one_step(
         pp_trial,
         n_xi,
         n_r,
@@ -622,7 +534,7 @@ def build_pp_cache_at_kp1(
     pp_cache = tuple(s.serialize() for s in species_list)
 
     # evolve tail -> k_tail+1 to make cache "ready for k_tail"
-    evolve_window_inplace(
+    evolve_one_step(
         pp_cache,
         n_xi,
         n_r,
@@ -693,7 +605,7 @@ def commit_cache_one_slice(
         nabla_a2 = np.zeros((0, 0))
 
     # evolve exactly slice k
-    evolve_window_inplace(
+    evolve_one_step(
         pp_cache,
         n_xi,
         n_r,
