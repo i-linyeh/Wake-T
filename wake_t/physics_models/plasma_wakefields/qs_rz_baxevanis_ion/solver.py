@@ -32,6 +32,27 @@ from wake_t.utilities.numba import njit_serial
 from .plasma_particle_container import PlasmaParticleContainer
 
 
+def _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld):
+    """Return (s_d, dr, dxi, r_fld_n) in normalized units."""
+    s_d = ge.plasma_skin_depth(n_p * 1e-6)
+    dr = (r_max / s_d) / n_r
+    dxi = ((xi_max - xi_min) / s_d) / (n_xi - 1)
+    return s_d, dr, dxi, r_fld / s_d
+
+
+def _setup_laser(laser_a2, dr, n_xi, n_r):
+    """Build nabla_a2 and JIT-safe dummy arrays if no laser.
+    Returns (laser_a2, nabla_a2, has_laser_source)."""
+    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
+    has_laser_source = laser_a2 is not None
+    if has_laser_source:
+        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
+    else:
+        laser_a2 = np.zeros((0, 0))
+        nabla_a2 = np.zeros((0, 0))
+    return laser_a2, nabla_a2, has_laser_source
+
+
 def deepcopy_pp_state(pp_state):
     """
     Deep-copy serialized plasma state: tuple(species0_tuple, species1_tuple,...)
@@ -248,35 +269,20 @@ def calculate_wakefields(
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
     # Convert to normalized units.
-    s_d = ge.plasma_skin_depth(n_p * 1e-6)
-    r_max = r_max / s_d
-    xi_min = xi_min / s_d
-    xi_max = xi_max / s_d
-    dr = r_max / n_r
-    dxi = (xi_max - xi_min) / (n_xi - 1)
+    s_d, dr, dxi, r_fld = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
     ppc = ppc.copy()
     ppc[:, 0] /= s_d
     r_max_plasma = r_max_plasma / s_d
+    xi_fld = xi_fld / s_d
 
     def radial_density_normalized(r):
         return radial_density(r * s_d) / n_p
 
-    # Field node coordinates.
-    r_fld = r_fld / s_d
-    xi_fld = xi_fld / s_d
-
     # Initialize field arrays, including guard cells.
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
     psi = np.zeros((n_xi + 4, n_r + 4))
 
     # Laser source.
-    has_laser_source = laser_a2 is not None
-    if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
-    else:
-        # need to set the dtype for JIT
-        laser_a2 = np.zeros((0, 0))
-        nabla_a2 = np.zeros((0, 0))
+    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
     has_beam_source = len(bunch_source_arrays) > 0
     if not has_beam_source:
@@ -385,27 +391,12 @@ def calculate_wakefields_ez_km1_from_cache(
     """
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    # normalize
-    s_d = ge.plasma_skin_depth(n_p * 1e-6)
-    r_max_n = r_max / s_d
-    xi_min_n = xi_min / s_d
-    xi_max_n = xi_max / s_d
-    dr = r_max_n / n_r
-    dxi = (xi_max_n - xi_min_n) / (n_xi - 1)
-    r_fld_n = r_fld / s_d
+    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
-    # minimal arrays
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
     psi = np.zeros((n_xi + 4, n_r + 4))
     B_t[:] = 0.0
     chi[:] = 0.0
-
-    has_laser_source = laser_a2 is not None
-    if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
-    else:
-        laser_a2 = np.zeros((0, 0))
-        nabla_a2 = np.zeros((0, 0))
 
     # scratch state (don’t mutate cache)
     pp_trial = deepcopy_pp_state(pp_state_kp1)
@@ -486,12 +477,8 @@ def build_pp_cache_at_kp1(
 ):
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    s_d = ge.plasma_skin_depth(n_p * 1e-6)
-    r_max_n = r_max / s_d
-    xi_min_n = xi_min / s_d
-    xi_max_n = xi_max / s_d
-    dr = r_max_n / n_r
-    dxi = (xi_max_n - xi_min_n) / (n_xi - 1)
+    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
     ppc_n = ppc.copy()
     ppc_n[:, 0] /= s_d
@@ -499,19 +486,9 @@ def build_pp_cache_at_kp1(
     def radial_density_normalized(r):
         return radial_density(r * s_d) / n_p
 
-    r_fld_n = r_fld / s_d
-
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
     psi = np.zeros((n_xi + 4, n_r + 4))
     B_t[:] = 0.0
     chi[:] = 0.0
-
-    has_laser_source = laser_a2 is not None
-    if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
-    else:
-        laser_a2 = np.zeros((0, 0))
-        nabla_a2 = np.zeros((0, 0))
 
     init_list = [
         {
@@ -584,25 +561,12 @@ def commit_cache_one_slice(
 ):
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    s_d = ge.plasma_skin_depth(n_p * 1e-6)
-    r_max_n = r_max / s_d
-    xi_min_n = xi_min / s_d
-    xi_max_n = xi_max / s_d
-    dr = r_max_n / n_r
-    dxi = (xi_max_n - xi_min_n) / (n_xi - 1)
-    r_fld_n = r_fld / s_d
+    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
-    nabla_a2 = np.zeros((n_xi + 4, n_r + 4))
     psi = np.zeros((n_xi + 4, n_r + 4))
     B_t[:] = 0.0
     chi[:] = 0.0
-
-    has_laser_source = laser_a2 is not None
-    if has_laser_source:
-        radial_gradient(laser_a2[2:-2, 2:-2], dr, nabla_a2[2:-2, 2:-2])
-    else:
-        laser_a2 = np.zeros((0, 0))
-        nabla_a2 = np.zeros((0, 0))
 
     # evolve exactly slice k
     evolve_one_step(
