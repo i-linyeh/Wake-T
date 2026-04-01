@@ -56,7 +56,7 @@ def deposit_3d_distribution(
         boundary) into which the weight will be deposited (will be
         modified within this function)
     p_shape : str
-        Particle shape to be used. Possible values are 'linear' or 'cubic'.
+        Particle shape to be used. Possible values are 'linear' or 'cubic' or 'z0r1'.
     r_min_deposit : float
         The minimum radial position that particles must have in order to
         deposit their weight on the grid.
@@ -431,7 +431,7 @@ def deposit_3d_distribution_z0r1(
             # ---------------------------
             iz_nearest = int(math.floor(z_cell + 0.5))
             iz_nearest = min(max(iz_nearest, 0), nz - 1)
-            iz_dep = iz_nearest + 2  # shift for 2 guard cells
+            iz_cell = iz_nearest + 2  # shift for 2 guard cells
 
             # ---------------------------
             # 1st order in r: linear split
@@ -453,8 +453,8 @@ def deposit_3d_distribution_z0r1(
                 rsl_0 += rc * (1.0 - u_r) * u_r
                 rsl_1 -= rc * (1.0 - u_r) * u_r
 
-            deposition_array[iz_dep, ir_cell + 0] += rsl_0 * w_i
-            deposition_array[iz_dep, ir_cell + 1] += rsl_1 * w_i
+            deposition_array[iz_cell, ir_cell + 0] += rsl_0 * w_i
+            deposition_array[iz_cell, ir_cell + 1] += rsl_1 * w_i
 
         else:
             all_deposited = False
