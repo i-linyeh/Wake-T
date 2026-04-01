@@ -119,7 +119,7 @@ def deposit_3d_distribution(
         raise ValueError(
             "Particle shape not recognized. Possible values are "
             "'linear', 'cubic', or 'z0r1'."
-        )    
+        )
 
 
 @njit_serial
