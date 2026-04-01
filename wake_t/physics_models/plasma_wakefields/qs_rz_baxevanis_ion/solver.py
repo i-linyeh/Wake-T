@@ -391,7 +391,9 @@ def calculate_wakefields_ez_km1_from_cache(
     """
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    s_d, dr, dxi, r_fld_n = _normalize_grid(
+        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
+    )
     laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
     psi = np.zeros((n_xi + 4, n_r + 4))
@@ -477,7 +479,9 @@ def build_pp_cache_at_kp1(
 ):
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    s_d, dr, dxi, r_fld_n = _normalize_grid(
+        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
+    )
     laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
     ppc_n = ppc.copy()
@@ -561,7 +565,9 @@ def commit_cache_one_slice(
 ):
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    s_d, dr, dxi, r_fld_n = _normalize_grid(
+        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
+    )
     laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
 
     psi = np.zeros((n_xi + 4, n_r + 4))
