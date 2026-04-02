@@ -56,7 +56,7 @@ def deposit_3d_distribution(
         boundary) into which the weight will be deposited (will be
         modified within this function)
     p_shape : str
-        Particle shape to be used. Possible values are 'linear' or 'cubic'.
+        Particle shape to be used. Possible values are 'linear' or 'cubic' or 'z0r1'.
     r_min_deposit : float
         The minimum radial position that particles must have in order to
         deposit their weight on the grid.
@@ -99,9 +99,26 @@ def deposit_3d_distribution(
             use_ruyten,
             r_min_deposit,
         )
+    elif p_shape == "z0r1":
+        return deposit_3d_distribution_z0r1(
+            z,
+            x,
+            y,
+            w,
+            z_min,
+            r_min,
+            nz,
+            nr,
+            dz,
+            dr,
+            deposition_array,
+            use_ruyten,
+            r_min_deposit,
+        )
     else:
         raise ValueError(
-            "Particle shape not recognized. Possible values are 'linear' or 'cubic'."
+            "Particle shape not recognized. Possible values are "
+            "'linear', 'cubic', or 'z0r1'."
         )
 
 
@@ -177,7 +194,7 @@ def deposit_3d_distribution_linear(
             if z_cell < 0:
                 # Force all charge to be deposited above z_min.
                 u_z = 1.0
-            elif r_cell > nz - 1:
+            elif z_cell > nz - 1:
                 # Force all charge to be deposited below z_max.
                 u_z = 0.0
             else:
@@ -346,4 +363,100 @@ def deposit_3d_distribution_cubic(
 
         else:
             all_deposited = False
+    return all_deposited
+
+
+@njit_serial
+def deposit_3d_distribution_z0r1(
+    z,
+    x,
+    y,
+    q,
+    z_min,
+    r_min,
+    nz,
+    nr,
+    dz,
+    dr,
+    deposition_array,
+    use_ruyten=False,
+    r_min_deposit=0.0,
+):
+    """
+    Deposit using 0th-order shape in z and 1st-order (linear) shape in r.
+
+    In z:
+        all particle weight is deposited to the nearest z grid point.
+
+    In r:
+        particle weight is split linearly between the two neighboring
+        radial grid points.
+
+    Parameters are the same as deposit_3d_distribution_linear.
+    """
+
+    # Same Ruyten correction as the linear-r deposition.
+    if use_ruyten:
+        ruyten_coef = np.zeros(nr + 1)
+        r_grid = (np.arange(nr) + 0.5) * dr  # Assumes cell-centered in r.
+        cell_volume = np.pi * dz * ((r_grid + 0.5 * dr) ** 2 - (r_grid - 0.5 * dr) ** 2)
+        cell_volume_norm = cell_volume / (2 * np.pi * dr**2 * dz)
+        cell_number = np.arange(nr) + 1
+        ruyten_coef[1:] = (
+            6.0
+            / cell_number
+            * (np.cumsum(cell_volume_norm) - 0.5 * cell_number**2 - 1.0 / 24)
+        )
+
+    z_max = z_min + (nz - 1) * dz
+    r_max = nr * dr
+
+    all_deposited = True
+
+    for i in prange(z.shape[0]):
+        x_i = x[i]
+        y_i = y[i]
+        z_i = z[i]
+        w_i = q[i]
+
+        r_i = math.sqrt(x_i**2 + y_i**2)
+
+        if z_i >= z_min and z_i <= z_max and r_i >= r_min_deposit and r_i <= r_max:
+            # Particle position in grid units.
+            r_cell = (r_i - r_min) / dr
+            z_cell = (z_i - z_min) / dz
+
+            # ---------------------------
+            # 0th order in z: nearest grid point
+            # ---------------------------
+            iz_nearest = int(math.floor(z_cell + 0.5))
+            iz_nearest = min(max(iz_nearest, 0), nz - 1)
+            iz_cell = iz_nearest + 2  # shift for 2 guard cells
+
+            # ---------------------------
+            # 1st order in r: linear split
+            # ---------------------------
+            ir_cell = min(int(math.ceil(r_cell)) + 1, nr + 2)
+
+            if r_cell < 0:
+                # Force all charge to be deposited above axis.
+                u_r = 1.0
+            else:
+                u_r = r_cell - int(math.ceil(r_cell)) + 1
+
+            rsl_0 = 1.0 - u_r
+            rsl_1 = u_r
+
+            if use_ruyten:
+                ir = min(int(math.ceil(r_cell)), nr)
+                rc = ruyten_coef[ir]
+                rsl_0 += rc * (1.0 - u_r) * u_r
+                rsl_1 -= rc * (1.0 - u_r) * u_r
+
+            deposition_array[iz_cell, ir_cell + 0] += rsl_0 * w_i
+            deposition_array[iz_cell, ir_cell + 1] += rsl_1 * w_i
+
+        else:
+            all_deposited = False
+
     return all_deposited
