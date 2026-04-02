@@ -278,7 +278,7 @@ def get_witness_current_and_weighted_ez(diag_dir, iteration=0):
         dz,
         dr,
         rho,
-        p_shape="cubic",
+        p_shape="z0r1",
     )
 
     rho_phys = rho[2:-2, 2:-2]
