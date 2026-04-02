@@ -133,18 +133,7 @@ def build_test_setup():
     nr = int(r_max / dr)
     dz_fields = 200e-6
 
-    res_beam_r = 10.0
-    adaptive_dr = np.min([sx0, sy0]) / res_beam_r
-    sxi = sx0
-    syi = sy0
-    adaptive_grid_r_max = 4 * np.max([sxi, syi])
-    adaptive_grid_nr = int(adaptive_grid_r_max / adaptive_dr)
-
-    ppc = 2
-    ppc = [
-        [1.5 * adaptive_grid_r_max, ppc * int(dr / adaptive_dr)],
-        [r_max_plasma, ppc],
-    ]
+    ppc = [[r_max_plasma, 2]]
 
     plasma_plateau = PlasmaStage(
         length=l_total,
@@ -166,10 +155,7 @@ def build_test_setup():
         laser_envelope_nxi=nz * 4,
         max_gamma=10,
         field_diags=["rho", "E", "B", "a", "q_bunch", "q_bunch_wit"],
-        use_adaptive_grids=True,
-        adaptive_grid_r_max=adaptive_grid_r_max,
-        adaptive_grid_nr=adaptive_grid_nr,
-        adaptive_grid_diags=["E", "B"],
+        use_adaptive_grids=False,
     )
 
     return plasma_plateau, bunch_dri, bunch_wit

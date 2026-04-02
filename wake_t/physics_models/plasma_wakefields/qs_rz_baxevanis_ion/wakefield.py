@@ -338,6 +338,11 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         witness = self._select_witness_bunch(bunches) if bunches else None
         use_salame = getattr(witness, "do_salame", False)
+        if use_salame and self.use_adaptive_grids:
+            raise ValueError(
+                "SALAME is not supported with adaptive grids. "
+                "Set use_adaptive_grids=False or do_salame=False."
+            )
         if use_salame and (not self._initial_condition_done):
             print("\nStarting SALAME")
             start = time.perf_counter()
