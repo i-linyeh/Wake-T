@@ -89,7 +89,6 @@ def run_case_and_get_weighted_ez(do_salame, diag_dir):
     bunch_wit.salame_n_iter = 100
     bunch_wit.salame_relative_tolerance = 1e-6
     bunch_wit.use_avg_psi = True
-    bunch_wit.salame_current_flat_ez = False
 
     beamline = Beamline([plasma_plateau])
     beamline.track(

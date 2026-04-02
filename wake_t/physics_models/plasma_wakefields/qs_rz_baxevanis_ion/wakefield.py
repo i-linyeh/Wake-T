@@ -529,37 +529,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             # if not self._initial_condition_done:
             ##if False:
             #    np.savez('q_bunch_after_SALAME.npz', q_bunch=self.q_bunch)
-            if getattr(witness, "salame_current_flat_ez", False) and (
-                not self._initial_condition_done
-            ):
-                self.b_t_bunch[:] = 0.0
-            else:
-                self._reset_bunch_arrays()
-                for bunch in bunches_without_grid:
-                    deposit_bunch_charge(
-                        bunch.x,
-                        bunch.y,
-                        bunch.xi,
-                        bunch.q,
-                        self.n_p,
-                        self.n_r,
-                        self.n_xi,
-                        self.r_fld,
-                        self.xi_fld,
-                        self.dr,
-                        self.dxi,
-                        self.p_shape,
-                        self.q_bunch,
-                    )
-
-                # --- build q_var = deposit(witness only) ---
-                witness = self._select_witness_bunch(bunches)
-                self.q_var = np.zeros_like(self.q_bunch)
+            self._reset_bunch_arrays()
+            for bunch in bunches_without_grid:
                 deposit_bunch_charge(
-                    witness.x,
-                    witness.y,
-                    witness.xi,
-                    witness.q,
+                    bunch.x,
+                    bunch.y,
+                    bunch.xi,
+                    bunch.q,
                     self.n_p,
                     self.n_r,
                     self.n_xi,
@@ -568,12 +544,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.dr,
                     self.dxi,
                     self.p_shape,
-                    self.q_var,
+                    self.q_bunch,
                 )
 
-            # if not self._initial_condition_done:
-            ##if True:
-            #    np.savez('q_bunch_after_SALAME_deposition.npz', q_bunch=self.q_bunch)
 
             calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
             bunch_source_arrays.append(self.b_t_bunch)
