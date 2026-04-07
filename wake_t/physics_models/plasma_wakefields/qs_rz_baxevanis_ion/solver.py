@@ -366,7 +366,7 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-def calculate_wakefields_salame_inline(  # pylint: disable=too-many-arguments
+def calculate_wakefields_salame_inline(  
     laser_a2,
     r_max,
     xi_min,
@@ -392,8 +392,8 @@ def calculate_wakefields_salame_inline(  # pylint: disable=too-many-arguments
     free_electrons_per_ion=1,
     store_plasma_history=False,
     calculate_rho=True,
-    particle_diags=[],
-    fld_arrays=[],
+    particle_diags=None,
+    fld_arrays=None,
 ):
     """
     Full wakefield solve with inline SALAME bisection.
@@ -409,6 +409,12 @@ def calculate_wakefields_salame_inline(  # pylint: disable=too-many-arguments
     q_bunch is updated in-place to q_fixed + q_var (shaped).
     b_t_bunch is updated in-place.
     """
+
+    if particle_diags is None:
+        particle_diags = []
+    if fld_arrays is None:
+        fld_arrays = []
+
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
     s_d, dr, dxi, r_fld_n = _normalize_grid(
