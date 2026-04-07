@@ -366,7 +366,7 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-def calculate_wakefields_salame_inline(  
+def calculate_wakefields_salame_inline(
     laser_a2,
     r_max,
     xi_min,
