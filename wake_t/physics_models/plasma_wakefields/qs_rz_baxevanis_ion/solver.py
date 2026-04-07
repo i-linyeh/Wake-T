@@ -366,7 +366,7 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-def calculate_wakefields_salame_inline(
+def calculate_wakefields_salame_inline(  # pylint: disable=too-many-arguments
     laser_a2,
     r_max,
     xi_min,
@@ -437,7 +437,6 @@ def calculate_wakefields_salame_inline(
     # --- Find witness longitudinal support ---
     g_line_var = np.sum(q_var[2:-2, 2:-2], axis=1)  # (n_xi,)
     support = np.where(np.abs(g_line_var) > 0.0)[0]
-    assert len(support) > 0, "q_var has no non-zero entries"
     k_tail = int(support[-1])
     k_head = int(support[0])
 
