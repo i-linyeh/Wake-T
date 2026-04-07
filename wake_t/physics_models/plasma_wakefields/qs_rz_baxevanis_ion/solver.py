@@ -366,244 +366,6 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-def calculate_wakefields_ez_km1_from_cache(
-    pp_state_kp1,  # cached plasma state "after slice k+1" (ready for k)
-    k,  # we are varying q_bunch at slice k, want Ez at k-1
-    laser_a2,
-    r_max,
-    xi_min,
-    xi_max,
-    n_r,
-    n_xi,
-    n_p,
-    radial_density,
-    r_max_plasma,
-    p_shape,
-    max_gamma,
-    bunch_source_arrays,
-    bunch_source_xi_indices,
-    bunch_source_metadata,
-    fld_arrays,
-    use_avg_psi,
-):
-    """
-    Starting from cached plasma state at k+1, evolve only slices k..k-2
-    and return Ez(k-1, r) (including guard r cells, consistent with your arrays).
-    """
-    rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
-
-    s_d, dr, dxi, r_fld_n = _normalize_grid(
-        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
-    )
-    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
-
-    psi = np.zeros((n_xi + 4, n_r + 4))
-    B_t[:] = 0.0
-    chi[:] = 0.0
-
-    # scratch state (don’t mutate cache)
-    pp_trial = deepcopy_pp_state(pp_state_kp1)
-
-    # evolve k, k-1, k-2 (need k>=2)
-    evolve_one_step(
-        pp_trial,
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        r_fld_n,
-        has_laser_source,
-        laser_a2,
-        nabla_a2,
-        True,
-        tuple(bunch_source_arrays),
-        tuple(bunch_source_xi_indices),
-        tuple(bunch_source_metadata),
-        max_gamma,
-        psi,
-        B_t,
-        p_shape,
-        False,  # calculate_rho off
-        rho,
-        rho_e,
-        rho_i,
-        chi,
-        False,  # no history
-        ("none",),
-        k,
-        k - 2,
-    )
-
-    # compute Ez(k-1,r) using centered stencil in psi
-    E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
-    psi_k = psi[2 + k, :]  # includes guard r
-    psi_km2 = psi[2 + k - 2, :]  # includes guard r
-    psi_km1 = psi[2 + k - 1, :]  # includes guard r
-
-    if not use_avg_psi:
-        Ez_r_km1 = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
-    else:
-        psi_ref = (psi_k + psi_km1) / 2  # includes guard r
-        Ez_r_km1 = -(psi_ref - psi_km2) / (1.5 * dxi) * E_0
-
-    # psi_km1 = psi[2 + k - 1, :]  # includes guard r
-
-    # print("psi(k) axis/mean/min/max:", psi_k[0], psi_k.mean(), psi_k.min(), psi_k.max())
-    # print("psi(km1)   axis/mean/min/max:", psi_km1[0], psi_km1.mean(), psi_km1.min(), psi_km1.max())
-    # print("psi(km2)   axis/mean/min/max:", psi_km2[0], psi_km2.mean(), psi_km2.min(), psi_km2.max())
-
-    return Ez_r_km1
-
-
-def build_pp_cache_at_kp1(
-    k_tail,
-    laser_a2,
-    r_max,
-    xi_min,
-    xi_max,
-    n_r,
-    n_xi,
-    ppc,
-    n_p,
-    r_max_plasma,
-    radial_density,
-    p_shape,
-    max_gamma,
-    plasma_pusher,
-    ion_motion,
-    ion_mass,
-    free_electrons_per_ion,
-    bunch_source_arrays,
-    bunch_source_xi_indices,
-    bunch_source_metadata,
-    fld_arrays,
-):
-    rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
-
-    s_d, dr, dxi, r_fld_n = _normalize_grid(
-        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
-    )
-    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
-
-    ppc_n = ppc.copy()
-    ppc_n[:, 0] /= s_d
-
-    def radial_density_normalized(r):
-        return radial_density(r * s_d) / n_p
-
-    psi = np.zeros((n_xi + 4, n_r + 4))
-    B_t[:] = 0.0
-    chi[:] = 0.0
-
-    init_list = [
-        {
-            "charge": free_electrons_per_ion,
-            "mass": free_electrons_per_ion,
-            "is_ion": False,
-        },
-        {"charge": -free_electrons_per_ion, "mass": ion_mass / ct.m_e, "is_ion": True},
-    ]
-    species_list = pp_initialize(
-        init_list,
-        n_xi,
-        ppc_n,
-        dr,
-        radial_density_normalized,
-        ion_motion,
-        False,  # store_history OFF (critical for cheap copies)
-        plasma_pusher,
-    )
-    pp_cache = tuple(s.serialize() for s in species_list)
-
-    # evolve tail -> k_tail+1 to make cache "ready for k_tail"
-    evolve_one_step(
-        pp_cache,
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        r_fld_n,
-        has_laser_source,
-        laser_a2,
-        nabla_a2,
-        True,
-        tuple(bunch_source_arrays),
-        tuple(bunch_source_xi_indices),
-        tuple(bunch_source_metadata),
-        max_gamma,
-        psi,
-        B_t,
-        p_shape,
-        False,
-        rho,
-        rho_e,
-        rho_i,
-        chi,
-        False,
-        ("none",),
-        n_xi - 1,
-        k_tail + 1,
-    )
-    return pp_cache
-
-
-def commit_cache_one_slice(
-    pp_cache,
-    k,
-    laser_a2,
-    r_max,
-    xi_min,
-    xi_max,
-    n_r,
-    n_xi,
-    n_p,
-    p_shape,
-    max_gamma,
-    bunch_source_arrays,
-    bunch_source_xi_indices,
-    bunch_source_metadata,
-    fld_arrays,
-):
-    rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
-
-    s_d, dr, dxi, r_fld_n = _normalize_grid(
-        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
-    )
-    laser_a2, nabla_a2, has_laser_source = _setup_laser(laser_a2, dr, n_xi, n_r)
-
-    psi = np.zeros((n_xi + 4, n_r + 4))
-    B_t[:] = 0.0
-    chi[:] = 0.0
-
-    # evolve exactly slice k
-    evolve_one_step(
-        pp_cache,
-        n_xi,
-        n_r,
-        dxi,
-        dr,
-        r_fld_n,
-        has_laser_source,
-        laser_a2,
-        nabla_a2,
-        True,
-        tuple(bunch_source_arrays),
-        tuple(bunch_source_xi_indices),
-        tuple(bunch_source_metadata),
-        max_gamma,
-        psi,
-        B_t,
-        p_shape,
-        False,
-        rho,
-        rho_e,
-        rho_i,
-        chi,
-        False,
-        ("none",),
-        k,
-        k,
-    )
 
 
 def calculate_wakefields_salame_inline(
@@ -704,7 +466,7 @@ def calculate_wakefields_salame_inline(
 
     E_0 = ge.plasma_cold_non_relativisct_wave_breaking_field(n_p * 1e-6)
 
-    def _eval_ez_weighted_km1(qv_trial, pp_state_in, k):
+    def _eval_ez_weighted_km1(qv_trial, pp_state_in, k, _use_avg_psi=None):
         """
         Deepcopy pp_state_in, update b_t_bunch at slice k with trial witness,
         evolve k..k-2, return weighted Ez at k-1.
@@ -729,7 +491,12 @@ def calculate_wakefields_salame_inline(
         psi_k = psi_sc[2 + k, :]
         psi_km2 = psi_sc[2 + k - 2, :]
         psi_km1 = psi_sc[2 + k - 1, :]
-        if not use_avg_psi:
+
+
+        if _use_avg_psi is None: 
+            _use_avg_psi=use_avg_psi
+            
+        if not _use_avg_psi:
             Ez_r = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
         else:
             Ez_r = -((psi_k + psi_km1) / 2.0 - psi_km2) / (1.5 * dxi) * E_0
@@ -772,7 +539,7 @@ def calculate_wakefields_salame_inline(
     # Compute Ez_target: evolve trial k_tail+1..k_tail-1 from pp_state
     # (pp_state is now ready for k_tail+1)
     # -------------------------------------------------------------------
-    Ez_target = _eval_ez_weighted_km1(q_var, pp_state, k_tail + 1)
+    Ez_target = _eval_ez_weighted_km1(q_var, pp_state, k_tail + 1, _use_avg_psi=True)
 
     # Commit k_tail+1 → pp_state ready for k_tail
     evolve_one_step(

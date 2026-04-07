@@ -539,7 +539,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 use_ruyten=True,
             )
 
-            print("\nStarting inline SALAME")
+            print("\nStarting SALAME")
             start = time.perf_counter()
             self.pp = calculate_wakefields_salame_inline(
                 laser_a2,
