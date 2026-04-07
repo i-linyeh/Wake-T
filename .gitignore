@@ -21,5 +21,3 @@ __pycache__
 *.pptx
 /venv
 /.idea
-.DS_Store
-CLAUDE.md

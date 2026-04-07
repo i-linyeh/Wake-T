@@ -6,14 +6,8 @@ from numpy.typing import ArrayLike
 import scipy.constants as ct
 import aptools.plasma_accel.general_equations as ge
 
-from .solver import (
-    calculate_wakefields,
-    calculate_wakefields_salame_inline,
-)
-from .b_theta_bunch import (
-    calculate_bunch_source,
-    deposit_bunch_charge,
-)
+from .solver import calculate_wakefields, calculate_wakefields_salame_inline
+from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge
 from .adaptive_grid import AdaptiveGrid
 from .utils import calculate_laser_a2
 from wake_t.fields.rz_wakefield import RZWakefield
