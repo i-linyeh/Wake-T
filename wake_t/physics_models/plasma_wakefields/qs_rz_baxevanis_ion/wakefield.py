@@ -499,7 +499,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                         self.p_shape,
                         self.q_bunch,
                     )
-                calculate_bunch_source(self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch)
+                calculate_bunch_source(
+                    self.q_bunch, self.n_r, self.n_xi, self.b_t_bunch
+                )
                 bunch_source_arrays.append(self.b_t_bunch)
                 bunch_source_xi_indices.append(np.arange(self.n_xi))
                 bunch_source_metadata.append(

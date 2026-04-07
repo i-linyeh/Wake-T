@@ -366,8 +366,6 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-
-
 def calculate_wakefields_salame_inline(
     laser_a2,
     r_max,
@@ -413,7 +411,9 @@ def calculate_wakefields_salame_inline(
     """
     rho, rho_e, rho_i, chi, E_r, E_z, B_t, xi_fld, r_fld = fld_arrays
 
-    s_d, dr, dxi, r_fld_n = _normalize_grid(r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld)
+    s_d, dr, dxi, r_fld_n = _normalize_grid(
+        r_max, xi_min, xi_max, n_r, n_xi, n_p, r_fld
+    )
     ppc_n = ppc.copy()
     ppc_n[:, 0] /= s_d
 
@@ -443,7 +443,11 @@ def calculate_wakefields_salame_inline(
 
     # --- Initialize plasma particles ---
     init_list = [
-        {"charge": free_electrons_per_ion, "mass": free_electrons_per_ion, "is_ion": False},
+        {
+            "charge": free_electrons_per_ion,
+            "mass": free_electrons_per_ion,
+            "is_ion": False,
+        },
         {"charge": -free_electrons_per_ion, "mass": ion_mass / ct.m_e, "is_ion": True},
     ]
     species_list = pp_initialize(
@@ -478,24 +482,40 @@ def calculate_wakefields_salame_inline(
         pp_trial = deepcopy_pp_state(pp_state_in)
         evolve_one_step(
             pp_trial,
-            n_xi, n_r, dxi, dr, r_fld_n,
-            has_laser_source, laser_a2, nabla_a2,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
             True,
-            tuple(bsa), tuple(bsxi), tuple(bsmd),
-            max_gamma, psi_sc, B_t_sc, p_shape,
-            False, _rho_sc, _rho_sc, _rho_sc, _chi_sc,
-            False, ("none",),
-            k, k - 2,
+            tuple(bsa),
+            tuple(bsxi),
+            tuple(bsmd),
+            max_gamma,
+            psi_sc,
+            B_t_sc,
+            p_shape,
+            False,
+            _rho_sc,
+            _rho_sc,
+            _rho_sc,
+            _chi_sc,
+            False,
+            ("none",),
+            k,
+            k - 2,
         )
 
         psi_k = psi_sc[2 + k, :]
         psi_km2 = psi_sc[2 + k - 2, :]
         psi_km1 = psi_sc[2 + k - 1, :]
 
+        if _use_avg_psi is None:
+            _use_avg_psi = use_avg_psi
 
-        if _use_avg_psi is None: 
-            _use_avg_psi=use_avg_psi
-            
         if not _use_avg_psi:
             Ez_r = -(psi_k - psi_km2) / (2.0 * dxi) * E_0
         else:
@@ -525,14 +545,31 @@ def calculate_wakefields_salame_inline(
     if n_xi - 1 >= k_tail + 2:
         evolve_one_step(
             pp_state,
-            n_xi, n_r, dxi, dr, r_fld_n,
-            has_laser_source, laser_a2, nabla_a2,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
             True,
-            tuple(bsa), tuple(bsxi), tuple(bsmd),
-            max_gamma, psi, B_t, p_shape,
-            calculate_rho, rho, rho_e, rho_i, chi,
-            store_plasma_history, tuple(particle_diags),
-            n_xi - 1, k_tail + 2,
+            tuple(bsa),
+            tuple(bsxi),
+            tuple(bsmd),
+            max_gamma,
+            psi,
+            B_t,
+            p_shape,
+            calculate_rho,
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            store_plasma_history,
+            tuple(particle_diags),
+            n_xi - 1,
+            k_tail + 2,
         )
 
     # -------------------------------------------------------------------
@@ -544,14 +581,31 @@ def calculate_wakefields_salame_inline(
     # Commit k_tail+1 → pp_state ready for k_tail
     evolve_one_step(
         pp_state,
-        n_xi, n_r, dxi, dr, r_fld_n,
-        has_laser_source, laser_a2, nabla_a2,
+        n_xi,
+        n_r,
+        dxi,
+        dr,
+        r_fld_n,
+        has_laser_source,
+        laser_a2,
+        nabla_a2,
         True,
-        tuple(bsa), tuple(bsxi), tuple(bsmd),
-        max_gamma, psi, B_t, p_shape,
-        calculate_rho, rho, rho_e, rho_i, chi,
-        store_plasma_history, tuple(particle_diags),
-        k_tail + 1, k_tail + 1,
+        tuple(bsa),
+        tuple(bsxi),
+        tuple(bsmd),
+        max_gamma,
+        psi,
+        B_t,
+        p_shape,
+        calculate_rho,
+        rho,
+        rho_e,
+        rho_i,
+        chi,
+        store_plasma_history,
+        tuple(particle_diags),
+        k_tail + 1,
+        k_tail + 1,
     )
 
     # -------------------------------------------------------------------
@@ -567,14 +621,31 @@ def calculate_wakefields_salame_inline(
             calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
             evolve_one_step(
                 pp_state,
-                n_xi, n_r, dxi, dr, r_fld_n,
-                has_laser_source, laser_a2, nabla_a2,
+                n_xi,
+                n_r,
+                dxi,
+                dr,
+                r_fld_n,
+                has_laser_source,
+                laser_a2,
+                nabla_a2,
                 True,
-                tuple(bsa), tuple(bsxi), tuple(bsmd),
-                max_gamma, psi, B_t, p_shape,
-                calculate_rho, rho, rho_e, rho_i, chi,
-                store_plasma_history, tuple(particle_diags),
-                k, k,
+                tuple(bsa),
+                tuple(bsxi),
+                tuple(bsmd),
+                max_gamma,
+                psi,
+                B_t,
+                p_shape,
+                calculate_rho,
+                rho,
+                rho_e,
+                rho_i,
+                chi,
+                store_plasma_history,
+                tuple(particle_diags),
+                k,
+                k,
             )
             continue
 
@@ -633,14 +704,31 @@ def calculate_wakefields_salame_inline(
         calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
         evolve_one_step(
             pp_state,
-            n_xi, n_r, dxi, dr, r_fld_n,
-            has_laser_source, laser_a2, nabla_a2,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
             True,
-            tuple(bsa), tuple(bsxi), tuple(bsmd),
-            max_gamma, psi, B_t, p_shape,
-            calculate_rho, rho, rho_e, rho_i, chi,
-            store_plasma_history, tuple(particle_diags),
-            k, k,
+            tuple(bsa),
+            tuple(bsxi),
+            tuple(bsmd),
+            max_gamma,
+            psi,
+            B_t,
+            p_shape,
+            calculate_rho,
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            store_plasma_history,
+            tuple(particle_diags),
+            k,
+            k,
         )
 
     # -------------------------------------------------------------------
@@ -653,14 +741,31 @@ def calculate_wakefields_salame_inline(
     if k_head >= 0:
         evolve_one_step(
             pp_state,
-            n_xi, n_r, dxi, dr, r_fld_n,
-            has_laser_source, laser_a2, nabla_a2,
+            n_xi,
+            n_r,
+            dxi,
+            dr,
+            r_fld_n,
+            has_laser_source,
+            laser_a2,
+            nabla_a2,
             True,
-            tuple(bsa), tuple(bsxi), tuple(bsmd),
-            max_gamma, psi, B_t, p_shape,
-            calculate_rho, rho, rho_e, rho_i, chi,
-            store_plasma_history, tuple(particle_diags),
-            k_head, 0,
+            tuple(bsa),
+            tuple(bsxi),
+            tuple(bsmd),
+            max_gamma,
+            psi,
+            B_t,
+            p_shape,
+            calculate_rho,
+            rho,
+            rho_e,
+            rho_i,
+            chi,
+            store_plasma_history,
+            tuple(particle_diags),
+            k_head,
+            0,
         )
 
     # Update caller's q_var in-place with shaped witness
