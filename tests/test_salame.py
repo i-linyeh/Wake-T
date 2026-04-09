@@ -18,9 +18,7 @@ def test_salame_current_profile_flattening(plot=False):
     The residual is defined as the average relative deviation of the
     bunch-weighted Ez from its value at the bunch tail.
     """
-    output_folder = os.path.join(
-        tests_output_folder, "salame_output"
-    )
+    output_folder = os.path.join(tests_output_folder, "salame_output")
     diag_dir = os.path.join(output_folder, "hdf5")
 
     # Load openPMD diagnostics.
@@ -45,7 +43,7 @@ def test_salame_current_profile_flattening(plot=False):
     q_bunch_zr = q_bunch.T
 
     # Compute line charge and current profile.
-    g_xi = np.sum(q_bunch_zr[:, int(nr / 2):], axis=1)
+    g_xi = np.sum(q_bunch_zr[:, int(nr / 2) :], axis=1)
     I_z = g_xi / dz * sc.c
 
     # Compute bunch-weighted <Ez>.
@@ -54,9 +52,7 @@ def test_salame_current_profile_flattening(plot=False):
 
     Ez_bunch_weighted = np.zeros(Ez_zr.shape[0], dtype=float)
     mask = wsum > 0
-    Ez_bunch_weighted[mask] = (
-        np.sum(Ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
-    )
+    Ez_bunch_weighted[mask] = np.sum(Ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
 
     # Restrict to nonzero bunch region.
     indices = np.flatnonzero(wsum)
