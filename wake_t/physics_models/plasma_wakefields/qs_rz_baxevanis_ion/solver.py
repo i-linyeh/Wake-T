@@ -351,7 +351,7 @@ def calculate_wakefields(
     return pp_get_history(species_list, store_plasma_history)
 
 
-def calculate_wakefields_salame_inline(
+def calculate_wakefields_salame(
     laser_a2,
     r_max,
     xi_min,
@@ -386,9 +386,9 @@ def calculate_wakefields_salame_inline(
     Compared to the two-pass approach (beamloading_initial_condition +
     calculate_wakefields), this function performs a single plasma initialization
     and evolves the plasma column once:
-      Phase 1 (JIT): slices n_xi-1 ... k_tail+2  (pre-witness, fixed source)
-      Phase 2 (Python): SALAME bisection for each witness slice (k_tail ... k_head)
-      Phase 3 (JIT): slices k_head-1 ... 0  (post-witness, shaped source)
+      Phase 1 (JIT): slices n_xi-1 ... k_head+2  (pre-witness, fixed source)
+      Phase 2 (Python): SALAME bisection for each witness slice (k_head ... k_tail)
+      Phase 3 (JIT): slices k_tail-1 ... 0  (post-witness, shaped source)
 
     q_var is updated in-place with the shaped witness deposit.
     q_bunch is updated in-place to q_fixed + q_var (shaped).
@@ -428,8 +428,8 @@ def calculate_wakefields_salame_inline(
     # --- Find witness longitudinal support ---
     g_line_var = np.sum(q_var[2:-2, 2:-2], axis=1)  # (n_xi,)
     support = np.where(np.abs(g_line_var) > 0.0)[0]
-    k_tail = int(support[-1])
-    k_head = int(support[0])
+    k_head = int(support[-1])
+    k_tail = int(support[0])
 
     # --- Initialize plasma particles ---
     init_list = [
@@ -530,9 +530,9 @@ def calculate_wakefields_salame_inline(
         return qv_new
 
     # -------------------------------------------------------------------
-    # Phase 1: evolve tail → k_tail+2 (pp_state becomes ready for k_tail+1)
+    # Phase 1: evolve nxi-1 → k_head+2 (pp_state becomes ready for k_head+1)
     # -------------------------------------------------------------------
-    if n_xi - 1 >= k_tail + 2:
+    if n_xi - 1 >= k_head + 2:
         evolve_one_step(
             pp_state,
             n_xi,
@@ -559,16 +559,16 @@ def calculate_wakefields_salame_inline(
             store_plasma_history,
             tuple(particle_diags),
             n_xi - 1,
-            k_tail + 2,
+            k_head + 2,
         )
 
     # -------------------------------------------------------------------
-    # Compute Ez_target: evolve trial k_tail+1..k_tail-1 from pp_state
-    # (pp_state is now ready for k_tail+1)
+    # Compute Ez_target: evolve trial k_head+1..k_head-1 from pp_state
+    # (pp_state is now ready for k_head+1)
     # -------------------------------------------------------------------
-    Ez_target = _eval_ez_weighted_km1(q_var, pp_state, k_tail + 1, _use_avg_psi=True)
+    Ez_target = _eval_ez_weighted_km1(q_var, pp_state, k_head + 1, _use_avg_psi=True)
 
-    # Commit k_tail+1 → pp_state ready for k_tail
+    # Commit k_head+1 → pp_state ready for k_head
     evolve_one_step(
         pp_state,
         n_xi,
@@ -594,17 +594,17 @@ def calculate_wakefields_salame_inline(
         chi,
         store_plasma_history,
         tuple(particle_diags),
-        k_tail + 1,
-        k_tail + 1,
+        k_head + 1,
+        k_head + 1,
     )
 
     # -------------------------------------------------------------------
-    # Phase 2: SALAME bisection for each witness slice k_tail .. k_head+1
+    # Phase 2: SALAME bisection for each witness slice k_head .. k_tail+1
     # -------------------------------------------------------------------
     g_line_var0 = np.sum(q_var[2:-2, 2:-2], axis=1).copy()
     qv_current = q_var.copy()
 
-    for k in range(k_tail, k_head, -1):
+    for k in range(k_head, k_tail, -1):
         if np.abs(g_line_var0[k]) == 0.0:
             # No witness charge at this slice — just advance pp_state
             q_bunch[:] = q_fixed + qv_current
@@ -718,13 +718,13 @@ def calculate_wakefields_salame_inline(
         )
 
     # -------------------------------------------------------------------
-    # Phase 3: evolve k_head..0 with fully shaped source
+    # Phase 3: evolve k_tail..0 with fully shaped source
     # -------------------------------------------------------------------
     # Rebuild b_t_bunch for all slices using final shaped q_bunch
     q_bunch[:] = q_fixed + qv_current
     calculate_bunch_source(q_bunch, n_r, n_xi, b_t_bunch)
 
-    if k_head >= 0:
+    if k_tail >= 0:
         evolve_one_step(
             pp_state,
             n_xi,
@@ -750,7 +750,7 @@ def calculate_wakefields_salame_inline(
             chi,
             store_plasma_history,
             tuple(particle_diags),
-            k_head,
+            k_tail,
             0,
         )
 

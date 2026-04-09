@@ -6,7 +6,7 @@ from numpy.typing import ArrayLike
 import scipy.constants as ct
 import aptools.plasma_accel.general_equations as ge
 
-from .solver import calculate_wakefields, calculate_wakefields_salame_inline
+from .solver import calculate_wakefields, calculate_wakefields_salame
 from .b_theta_bunch import calculate_bunch_source, deposit_bunch_charge
 from .adaptive_grid import AdaptiveGrid
 from .utils import calculate_laser_a2
@@ -534,7 +534,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 use_ruyten=True,
             )
 
-            self.pp = calculate_wakefields_salame_inline(
+            self.pp = calculate_wakefields_salame(
                 laser_a2,
                 self.r_max,
                 self.xi_min,
