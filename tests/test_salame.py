@@ -42,7 +42,7 @@ def test_salame(plot=False):
     q_bunch_zr = q_bunch.T
 
     # Compute line charge and current profile.
-    g_xi = np.sum(q_bunch_zr[:, int(nr / 2):], axis=1)
+    g_xi = np.sum(q_bunch_zr[:, int(nr / 2) :], axis=1)
     I_z = g_xi / dz * sc.c
 
     # Compute bunch-weighted <Ez>.
@@ -51,9 +51,7 @@ def test_salame(plot=False):
 
     Ez_bunch_weighted = np.zeros(Ez_zr.shape[0], dtype=float)
     mask = wsum > 0
-    Ez_bunch_weighted[mask] = (
-        np.sum(Ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
-    )
+    Ez_bunch_weighted[mask] = np.sum(Ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
 
     # Restrict to nonzero bunch region.
     indices = np.flatnonzero(wsum)
