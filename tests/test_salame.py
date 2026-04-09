@@ -9,7 +9,7 @@ from openpmd_viewer import OpenPMDTimeSeries
 tests_output_folder = "./tests_output"
 
 
-def test_salame_current_profile_flattening(plot=False):
+def test_salame(plot=False):
     """
     This test checks that the SALAME-generated charge profile produces
     a bunch-weighted longitudinal electric field that is sufficiently flat
@@ -25,7 +25,7 @@ def test_salame_current_profile_flattening(plot=False):
     ts = OpenPMDTimeSeries(diag_dir)
 
     # Select iteration.
-    it = 0
+    it = ts.iterations[0]
 
     # Read longitudinal electric field.
     Ez, info_Ez = ts.get_field(iteration=it, field="E", coord="z")
@@ -42,7 +42,7 @@ def test_salame_current_profile_flattening(plot=False):
     q_bunch_zr = q_bunch.T
 
     # Compute line charge and current profile.
-    g_xi = np.sum(q_bunch_zr[:, int(nr / 2) :], axis=1)
+    g_xi = np.sum(q_bunch_zr[:, int(nr / 2):], axis=1)
     I_z = g_xi / dz * sc.c
 
     # Compute bunch-weighted <Ez>.
@@ -51,7 +51,9 @@ def test_salame_current_profile_flattening(plot=False):
 
     Ez_bunch_weighted = np.zeros(Ez_zr.shape[0], dtype=float)
     mask = wsum > 0
-    Ez_bunch_weighted[mask] = np.sum(Ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
+    Ez_bunch_weighted[mask] = (
+        np.sum(Ez_zr[mask, :] * w[mask, :], axis=1) / wsum[mask]
+    )
 
     # Restrict to nonzero bunch region.
     indices = np.flatnonzero(wsum)
@@ -63,16 +65,13 @@ def test_salame_current_profile_flattening(plot=False):
         np.abs(Ez_target) * len(Ez_nonzero)
     )
 
-    # Check that residual is sufficiently small.
-    # assert residual < 0.2
-    if residual < 0.2:
+    if residual >= 0.1:
         raise AssertionError("SALAME execution wrong.")
 
     # Optional diagnostic plot.
     if plot:
         fig, ax1 = plt.subplots(figsize=(6, 3), constrained_layout=False)
 
-        # Left axis: current profile.
         ax1.plot(
             z * 1e6,
             I_z,
@@ -88,7 +87,6 @@ def test_salame_current_profile_flattening(plot=False):
         ax1.set_xlim(z[indices[0]] / 1e-6 - 2, z[indices[-1]] / 1e-6 + 2)
         ax1.set_ylim(-22000, 1200)
 
-        # Right axis: bunch-weighted Ez.
         ax2 = ax1.twinx()
         ax2.plot(
             z * 1e6,
@@ -108,4 +106,4 @@ def test_salame_current_profile_flattening(plot=False):
 
 
 if __name__ == "__main__":
-    test_salame_current_profile_flattening(plot=True)
+    test_salame(plot=True)
