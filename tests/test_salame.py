@@ -30,7 +30,6 @@ def test_salame_current_profile_flattening(plot=False):
     # Read longitudinal electric field.
     Ez, info_Ez = ts.get_field(iteration=it, field="E", coord="z")
     z = info_Ez.z
-    r = info_Ez.r
 
     dz = z[1] - z[0]
     nr = Ez.shape[0]
