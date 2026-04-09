@@ -12,7 +12,6 @@ import aptools.plasma_accel.general_equations as ge
 from copy import deepcopy
 
 
-
 from .plasma_particles import (
     pp_initialize,
     pp_sort,
@@ -55,7 +54,6 @@ def _setup_laser(laser_a2, dr, n_xi, n_r):
         laser_a2 = np.zeros((0, 0))
         nabla_a2 = np.zeros((0, 0))
     return laser_a2, nabla_a2, has_laser_source
-
 
 
 @njit_serial
