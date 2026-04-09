@@ -17,7 +17,6 @@ from wake_t.particles.interpolation import gather_main_fields_cyl_linear
 from wake_t.particles.gather_z0r1 import gather_z0r1
 
 
-
 class Quasistatic2DWakefieldIon(RZWakefield):
     """
     This class calculates the plasma wakefields using the gridless
