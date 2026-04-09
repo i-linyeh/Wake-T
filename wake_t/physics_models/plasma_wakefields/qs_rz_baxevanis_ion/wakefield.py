@@ -535,8 +535,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 use_ruyten=True,
             )
 
-            #print("\nStarting SALAME")
-            #start = time.perf_counter()
+            # print("\nStarting SALAME")
+            # start = time.perf_counter()
             self.pp = calculate_wakefields_salame_inline(
                 laser_a2,
                 self.r_max,
@@ -566,7 +566,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 particle_diags=self.particle_diags,
                 fld_arrays=self.fld_arrays,
             )
-            #print(f"SALAME elapsed: {time.perf_counter() - start:.6f} s")
+            # print(f"SALAME elapsed: {time.perf_counter() - start:.6f} s")
 
             # Gather from shaped q_var and apply the ratio as a per-particle
             # scale factor. Using the ratio cancels the N-particle accumulation

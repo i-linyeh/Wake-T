@@ -654,7 +654,6 @@ def calculate_wakefields_salame_inline(
             )
             continue
 
-
         g_min = -1e-100
         g_max = 5.0 * g_line_var0[k]
 
