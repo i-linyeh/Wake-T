@@ -9,6 +9,9 @@ for the full details about this model.
 import numpy as np
 import scipy.constants as ct
 import aptools.plasma_accel.general_equations as ge
+from copy import deepcopy
+
+
 
 from .plasma_particles import (
     pp_initialize,
@@ -53,22 +56,6 @@ def _setup_laser(laser_a2, dr, n_xi, n_r):
         nabla_a2 = np.zeros((0, 0))
     return laser_a2, nabla_a2, has_laser_source
 
-
-def deepcopy_pp_state(pp_state):
-    """
-    Deep-copy serialized plasma state: tuple(species0_tuple, species1_tuple,...)
-    Arrays are copied; scalars/bools are kept.
-    """
-    out = []
-    for sp in pp_state:
-        sp2 = []
-        for item in sp:
-            if hasattr(item, "copy"):
-                sp2.append(item.copy())
-            else:
-                sp2.append(item)
-        out.append(tuple(sp2))
-    return tuple(out)
 
 
 @njit_serial
@@ -484,7 +471,7 @@ def calculate_wakefields_salame_inline(
         q_bunch[:] = q_fixed + qv_trial
         calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
 
-        pp_trial = deepcopy_pp_state(pp_state_in)
+        pp_trial = deepcopy(pp_state_in)
         evolve_one_step(
             pp_trial,
             n_xi,
