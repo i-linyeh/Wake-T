@@ -255,4 +255,3 @@ def test_salame(plot=False):
 
 if __name__ == "__main__":
     test_salame(plot=False)
-
