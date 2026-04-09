@@ -14,7 +14,7 @@ from wake_t.fields.rz_wakefield import RZWakefield
 from wake_t.physics_models.laser.laser_pulse import LaserPulse
 from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
-from wake_t.particles.inverse_deposition import inverse_deposit_3d_distribution_z0r1
+from wake_t.particles.gather_z0r1 import gather_z0r1
 
 import time
 
@@ -521,7 +521,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         # Calculate plasma wakefields.
         if is_ic:
             # Gather from q_var before SALAME to get per-particle baseline.
-            w_gathered_old, _ = inverse_deposit_3d_distribution_z0r1(
+            w_gathered_old, _ = gather_z0r1(
                 witness.xi,
                 witness.x,
                 witness.y,
@@ -535,8 +535,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 use_ruyten=True,
             )
 
-            print("\nStarting SALAME")
-            start = time.perf_counter()
+            #print("\nStarting SALAME")
+            #start = time.perf_counter()
             self.pp = calculate_wakefields_salame_inline(
                 laser_a2,
                 self.r_max,
@@ -566,12 +566,12 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 particle_diags=self.particle_diags,
                 fld_arrays=self.fld_arrays,
             )
-            print(f"SALAME elapsed: {time.perf_counter() - start:.6f} s")
+            #print(f"SALAME elapsed: {time.perf_counter() - start:.6f} s")
 
             # Gather from shaped q_var and apply the ratio as a per-particle
             # scale factor. Using the ratio cancels the N-particle accumulation
             # that a direct inversion would produce.
-            w_gathered_new, _ = inverse_deposit_3d_distribution_z0r1(
+            w_gathered_new, _ = gather_z0r1(
                 witness.xi,
                 witness.x,
                 witness.y,
@@ -705,9 +705,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
 
-        if "q_bunch" in self.field_diags:
-            diag_data["fields"].append("q_bunch")
-            diag_data["q_bunch"] = {
+        if "charge_profile" in self.field_diags:
+            diag_data["fields"].append("charge_profile")
+            diag_data["charge_profile"] = {
                 "array": np.ascontiguousarray(self.q_bunch.T[2:-2, 2:-2] / k),
                 "position": [0.5, 0.0],
                 "grid": {
@@ -718,9 +718,9 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 "attributes": {},
             }
 
-        if "q_bunch_wit" in self.field_diags:
-            diag_data["fields"].append("q_bunch_wit")
-            diag_data["q_bunch_wit"] = {
+        if "charge_profile_salame" in self.field_diags:
+            diag_data["fields"].append("charge_profile_salame")
+            diag_data["charge_profile_salame"] = {
                 "array": np.ascontiguousarray(self.q_var.T[2:-2, 2:-2] / k),
                 "position": [0.5, 0.0],
                 "grid": {

@@ -16,7 +16,7 @@ from wake_t.utilities.numba import njit_serial, prange
 
 
 @njit_serial
-def inverse_deposit_3d_distribution_z0r1(
+def gather_z0r1(
     z,
     x,
     y,

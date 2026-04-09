@@ -654,9 +654,6 @@ def calculate_wakefields_salame_inline(
             )
             continue
 
-        if Ez_target > 0:
-            print("Ez_target is positive. Wrong bunch position.")
-            break
 
         g_min = -1e-100
         g_max = 5.0 * g_line_var0[k]
@@ -683,7 +680,7 @@ def calculate_wakefields_salame_inline(
                 g_new = g_min
                 qv_new = _set_var_slice(qv_current, k, g_new)
                 print(
-                    f"Need positrons for slice {k}. The charge at this slice is set as 0."
+                    f"SALAME needs positive charge for slice {k} at xi= {xi_fld[k]}. The charge at this slice is set as 0."
                 )
                 break
 
