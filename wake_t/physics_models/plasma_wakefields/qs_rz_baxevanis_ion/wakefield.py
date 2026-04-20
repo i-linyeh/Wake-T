@@ -521,6 +521,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
         # Calculate plasma wakefields.
         if is_ic:
+            ProfStart("salame.initial_condition")
             # Gather from q_var before SALAME to get per-particle baseline.
             w_gathered_old, _ = gather_z0r1(
                 witness.xi,
@@ -584,6 +585,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
             )
             safe_old = np.where(np.abs(w_gathered_old) > 0, w_gathered_old, 1.0)
             witness.w[:] = witness.w * (w_gathered_new / safe_old)
+            ProfStop("salame.initial_condition")
         else:
             self.pp = calculate_wakefields(
                 laser_a2,
