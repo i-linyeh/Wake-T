@@ -19,6 +19,8 @@ from .physics_models.laser.laser_pulse import (
 )
 from .particles.particle_bunch import ParticleBunch
 
+from .utilities.other import Profiling
+
 
 __all__ = [
     "__version__",
@@ -35,4 +37,5 @@ __all__ = [
     "LaguerreGaussPulse",
     "FlattenedGaussianPulse",
     "ParticleBunch",
+    "Profiling",
 ]
