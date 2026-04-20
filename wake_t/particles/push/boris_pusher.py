@@ -11,6 +11,8 @@ from numba import prange
 from wake_t.utilities.numba import njit_parallel
 from wake_t.fields.gather import gather_fields
 
+from wake_t.utilities.other import ProfStart, ProfStop
+
 
 def apply_boris_pusher(bunch, fields, t, dt):
     """Evolve a particle bunch using the Boris pusher.
@@ -26,6 +28,7 @@ def apply_boris_pusher(bunch, fields, t, dt):
     dt : float
         Time step by which to push the particles.
     """
+    ProfStart("bunch.apply_boris_pusher")
     # Calculate particle species constant.
     q_over_mc = bunch.q_species / (bunch.m_species * ct.c)
     # Get the necessary arrays where the fields  will be gathered.
@@ -55,6 +58,7 @@ def apply_boris_pusher(bunch, fields, t, dt):
     apply_half_position_push(
         bunch.x, bunch.y, bunch.xi, bunch.px, bunch.py, bunch.pz, dt
     )
+    ProfStop("bunch.apply_boris_pusher")
 
 
 @njit_parallel()

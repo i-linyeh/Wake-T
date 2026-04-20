@@ -21,6 +21,8 @@ from wake_t import __version__
 from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.fields.base import Field
 
+from wake_t.utilities.other import ProfStart, ProfStop
+
 
 SCALAR = Mesh_Record_Component.SCALAR
 
@@ -74,6 +76,7 @@ class OpenPMDDiagnostics:
             List of Fields that should be written to file.
 
         """
+        ProfStart("diagnostics.write_openPMD")
         # Perform checks.
         self.check_species_names(species_list)
 
@@ -117,6 +120,8 @@ class OpenPMDDiagnostics:
         # Flush data and increase counter for next step.
         opmd_series.flush()
         self._index_out += 1
+
+        ProfStop("diagnostics.write_openPMD")
 
     def increase_z_pos(self, dist: float) -> None:
         """

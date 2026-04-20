@@ -7,6 +7,8 @@ from numba import prange
 from wake_t.utilities.numba import njit_parallel
 from wake_t.fields.gather import gather_fields
 
+from wake_t.utilities.other import ProfStart, ProfStop
+
 
 def apply_rk4_pusher(bunch, fields, t, dt):
     """Evolve a particle bunch using the RK4 pusher.
@@ -45,6 +47,7 @@ def apply_rk4_pusher(bunch, fields, t, dt):
         Time step by which to push the particles.
     """
     # Get the necessary preallocated arrays.
+    ProfStart("bunch.apply_rk4_pusher")
     (
         x,
         y,
@@ -177,6 +180,8 @@ def apply_rk4_pusher(bunch, fields, t, dt):
     apply_push(bunch.px, dt, dpx)
     apply_push(bunch.py, dt, dpy)
     apply_push(bunch.pz, dt, dpz)
+
+    ProfStop("bunch.apply_rk4_pusher")
 
 
 @njit_parallel()

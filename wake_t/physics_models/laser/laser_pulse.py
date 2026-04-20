@@ -30,6 +30,8 @@ from .envelope_solver import evolve_envelope
 from .envelope_solver_non_centered import evolve_envelope_non_centered
 from wake_t.fields.interpolation import interpolate_rz_field
 
+from wake_t.utilities.other import ProfStart, ProfStop
+
 
 class LaserPulse:
     """Base class for all Laser pulses.
@@ -188,6 +190,8 @@ class LaserPulse:
         if self.use_subgrid:
             chi = self._interpolate_chi_to_subgrid(chi)
 
+        ProfStart("laser.evolve_envelope")
+
         # Compute evolution.
         if self.n_steps == 0:
             evolve_envelope_non_centered(
@@ -197,6 +201,8 @@ class LaserPulse:
             evolve_envelope(
                 self._a_env, self._a_env_old, chi, k_0, k_p, **self.solver_params
             )
+
+        ProfStop("laser.evolve_envelope")
 
         # Update arrays and step count.
         self._update_output_envelope()

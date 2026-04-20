@@ -14,6 +14,7 @@ from wake_t.fields.rz_wakefield import RZWakefield
 from wake_t.physics_models.laser.laser_pulse import LaserPulse
 from wake_t.particles.particle_bunch import ParticleBunch
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
+from wake_t.utilities.other import ProfStart, ProfStop
 
 
 class Quasistatic2DWakefieldIon(RZWakefield):
@@ -323,6 +324,8 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         s_d = ge.plasma_skin_depth(self.n_p * 1e-6)
         deposit_outliers_on_base_grid = False
         if self.use_adaptive_grids:
+            ProfStart("adaptive_grids.deposit_bunch")
+
             store_plasma_history = True
             # Get radial grid resolution.
             if isinstance(self.adaptive_grid_nr, list):
@@ -409,7 +412,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                         r_min_deposit=grid.r_max,
                     )
                     deposit_outliers_on_base_grid = True
-
+            ProfStop("adaptive_grids.deposit_bunch")
         else:
             bunches_without_grid = bunches
         # If not using adaptive grids, add all sources to the same array.
