@@ -60,8 +60,8 @@ class ParticleBunch:
         by the macroparticles. For an electron bunch (default),
         ``q_species=-e`` and ``m_species=m_e``
     do_salame : bool (default False)
-        If True, the per-slice beam weight in the first time-step is 
-        adjusted such that the bunch-weighted Ez is uniform and matches 
+        If True, the per-slice beam weight in the first time-step is
+        adjusted such that the bunch-weighted Ez is uniform and matches
         the value at the bunch head.
     salame_n_iter : integer (default 10)
         The maximum number of iterations the SALAME algorithm should do
@@ -69,7 +69,7 @@ class ParticleBunch:
     salame_relative_tolerance : float (default 1e-4)
         Relative tolerance to finish SALAME iterations. The relative tolerance
         is defined as |Ez-Ez_target|/|Ez_target|, where Ez_target is the
-        bunch-weighted Ez at the bunch head. 
+        bunch-weighted Ez at the bunch head.
 
     """
 
@@ -123,13 +123,13 @@ class ParticleBunch:
         self.do_salame = False
         self.salame_n_iter = 10
         self.salame_relative_tolerance = 1e-4
-        
+
         # Numerical smoothing for salame current profiles:
-        # If True, Ez is evaluated at the k-1.25 slice when varying the 
-        # charge on slice k. This acts as a numerical trick to get a smooth 
-        # current profile. If False, it will calculate Ez at k-1 slice, 
-        # which may introduce oscillatory current profile. 
-        self.use_avg_psi = True 
+        # If True, Ez is evaluated at the k-1.25 slice when varying the
+        # charge on slice k. This acts as a numerical trick to get a smooth
+        # current profile. If False, it will calculate Ez at k-1 slice,
+        # which may introduce oscillatory current profile.
+        self.use_avg_psi = True
 
     @property
     def q(self) -> np.ndarray:
