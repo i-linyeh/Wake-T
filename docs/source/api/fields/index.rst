@@ -16,4 +16,5 @@ Plasma wakefields
    :toctree: _autosummary
 
    Quasistatic2DWakefield
+   Quasistatic2DWakefieldIon
    NonLinearColdFluidWakefield
