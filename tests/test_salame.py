@@ -132,7 +132,6 @@ def run_simulation(output_folder):
             "rho",
             "E",
             "B",
-            "a",
             "charge_profile",
             "charge_profile_salame",
         ],
