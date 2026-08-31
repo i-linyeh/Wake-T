@@ -6,7 +6,6 @@ import numpy as np
 import scipy.constants as ct
 
 from wake_t.particles.interpolation import gather_main_fields_cyl_linear
-from wake_t.utilities.other import generate_field_diag_dictionary
 from .numerical_field import NumericalField
 from wake_t.physics_models.laser.laser_pulse import LaserPulse
 
@@ -64,8 +63,22 @@ class RZWakefield(NumericalField):
         solver.
     field_diags : list, optional
         List of fields to save to openpmd diagnostics. By default ['rho', 'E',
-        'B', 'a_mod', 'a_phase'].
-    field_diags : list, optional
+        'B', 'a_mod', 'a_phase']. Can also be 'all'.
+        Each entry can also be a dict to give more precise control of the
+        outputted data. The dict can have the following keys:
+        {
+            "field" : list of field names to output
+            "r_min" , "r_max" , "xi_min" , "xi_max" :
+                Cut the diagnostic box in r and xi.
+            "r_stride" , "xi_stride" :
+                Add a stride in units of dr and dxi to r and xi.
+            "do_transpose" :
+                Wheater to transpose data for the output (default True).
+            "diag_name" :
+                Name to append to the field name if there are multiple
+                diagnostics with the same field.
+        }
+    particle_diags : list, optional
         List of particle quantities to save to openpmd diagnostics. By default
         [].
     model_name : str, optional
@@ -90,7 +103,7 @@ class RZWakefield(NumericalField):
         laser_envelope_nxi: Optional[int] = None,
         laser_envelope_nr: Optional[int] = None,
         laser_envelope_use_phase: Optional[bool] = True,
-        field_diags: Optional[List[str]] = ["rho", "E", "B", "a_mod", "a_phase", "a"],
+        field_diags: Optional[List[str]] = None,
         particle_diags: Optional[List[str]] = [],
         model_name: Optional[str] = "",
     ) -> None:
@@ -110,7 +123,12 @@ class RZWakefield(NumericalField):
         self.n_xi = n_xi
         self.dr = r_max / n_r
         self.dxi = (xi_max - xi_min) / (n_xi - 1)
-        self.field_diags = field_diags
+        if field_diags is None:
+            self.field_diags = ["rho", "E", "B"]
+            if self.laser is not None:
+                self.field_diags += ["a_mod", "a_phase", "a"]
+        else:
+            self.field_diags = field_diags
         self.particle_diags = particle_diags
         self.model_name = model_name
         # If a laser is included, make sure it is evolved for the whole
@@ -197,121 +215,298 @@ class RZWakefield(NumericalField):
         )
 
     def _get_openpmd_diagnostics_data(self, global_time):
-        # Prepare necessary data.
-        fld_solver = "other"
-        fld_solver_params = self.model_name
-        fld_boundary = ["other"] * 4
-        part_boundary = ["other"] * 4
-        fld_boundary_params = ["none"] * 4
-        part_boundary_params = ["none"] * 4
-        current_smoothing = "none"
-        charge_correction = "none"
+        # Generate dictionary for openPMD diagnostics.
+        diag_data = {}
+        diag_data["fields"] = []
+        diag_data["field_solver"] = "other"
+        diag_data["field_solver_params"] = self.model_name
+        diag_data["field_boundary"] = ["other"] * 4
+        diag_data["field_boundary_params"] = ["none"] * 4
+        diag_data["particle_boundary"] = ["other"] * 4
+        diag_data["particle_boundary_params"] = ["none"] * 4
+        diag_data["current_smoothing"] = "none"
+        diag_data["charge_correction"] = "none"
+
+        # Cell-centered in 'r' and node centered in 'z'.
         dr = np.abs(self.r_fld[1] - self.r_fld[0])
         dz = np.abs(self.xi_fld[1] - self.xi_fld[0])
-        grid_spacing = [dr, dz]
-        grid_labels = ["r", "z"]
-        grid_global_offset = [0.0, global_time * ct.c + self.xi_min]
-        # Cell-centered in 'r' and node centered in 'z'.
-        fld_position = [0.5, 0.0]
-        fld_names = []
-        fld_comps = []
-        fld_attrs = []
-        fld_arrays = []
-        rho_norm = self.n_p * (-ct.e)
 
-        # Add requested fields to diagnostics.
-        if "E" in self.field_diags:
-            fld_names += ["E"]
-            fld_comps += [["r", "t", "z"]]
-            fld_attrs += [{}]
-            fld_arrays += [
-                [
-                    np.ascontiguousarray(self.e_r.T[2:-2, 2:-2]),
-                    np.ascontiguousarray(self.e_t.T[2:-2, 2:-2]),
-                    np.ascontiguousarray(self.e_z.T[2:-2, 2:-2]),
+        def add_diag(
+            options,
+            name,
+            array,
+            factor=None,
+            comps=None,
+            nghost=2,
+            pos_xi=0.0,
+            pos_r=0.5,
+            grid_spacing_xi=dz,
+            grid_spacing_r=dr,
+            grid_labels_xi="z",
+            grid_labels_r="r",
+            grid_global_offset_xi=self.xi_min,
+            grid_global_offset_r=0.0,
+            attrs=None,
+        ):
+
+            pos = [pos_xi, pos_r]
+            grid_spacing = [grid_spacing_xi, grid_spacing_r]
+            grid_labels = [grid_labels_xi, grid_labels_r]
+            grid_global_offset = [grid_global_offset_xi, grid_global_offset_r]
+
+            r_begin = None
+            r_end = None
+            r_stride = None
+            xi_begin = None
+            xi_end = None
+            xi_stride = None
+
+            if "r_min" in options:
+                r_begin = round(
+                    (options["r_min"] - grid_global_offset[1]) / grid_spacing[1]
+                    - pos[1]
+                )
+                r_begin = max(0, min(r_begin, array[0].shape[1] - 1))
+            if "r_max" in options:
+                r_end = (
+                    round(
+                        (options["r_max"] - grid_global_offset[1]) / grid_spacing[1]
+                        - pos[1]
+                    )
+                    + 1
+                )
+                r_end = max(1, min(r_end, array[0].shape[1]))
+            if "xi_min" in options:
+                xi_begin = round(
+                    (options["xi_min"] - grid_global_offset[0]) / grid_spacing[0]
+                    - pos[0]
+                )
+                xi_begin = max(0, min(xi_begin, array[0].shape[0] - 1))
+            if "xi_max" in options:
+                xi_end = (
+                    round(
+                        (options["xi_max"] - grid_global_offset[0]) / grid_spacing[0]
+                        - pos[0]
+                    )
+                    + 1
+                )
+                xi_end = max(1, min(xi_end, array[0].shape[0]))
+
+            if r_begin is not None and r_begin != 0:
+                grid_global_offset[1] += r_begin * grid_spacing[1]
+
+            if xi_begin is not None and xi_begin != 0:
+                grid_global_offset[0] += xi_begin * grid_spacing[0]
+
+            if "r_stride" in options:
+                r_stride = options["r_stride"]
+                grid_spacing[1] *= r_stride
+
+            if "xi_stride" in options:
+                xi_stride = options["xi_stride"]
+                grid_spacing[0] *= xi_stride
+
+            grid_global_offset[0] += global_time * ct.c
+
+            if "do_transpose" not in options or options["do_transpose"]:
+                pos.reverse()
+                grid_spacing.reverse()
+                grid_labels.reverse()
+                grid_global_offset.reverse()
+
+            array2 = []
+
+            for a in array:
+                if nghost is not None and nghost != 0:
+                    a = a[nghost:-nghost, nghost:-nghost]
+
+                if (
+                    r_begin is not None
+                    or r_end is not None
+                    or r_stride is not None
+                    or xi_begin is not None
+                    or xi_end is not None
+                    or xi_stride is not None
+                ):
+                    a = a[xi_begin:xi_end:xi_stride, r_begin:r_end:r_stride]
+
+                if "do_transpose" not in options or options["do_transpose"]:
+                    a = a.T
+
+                a = np.ascontiguousarray(a)
+
+                if factor is not None:
+                    a = np.ascontiguousarray(a * factor)
+
+                array2.append(a)
+
+            if name in diag_data["fields"]:
+                name = name + "_" + str(options["diag_name"])
+
+            diag_data["fields"].append(name)
+            diag_data[name] = {}
+
+            if comps is not None:
+                diag_data[name]["comps"] = {}
+                for comp, arr in zip(comps, array2):
+                    diag_data[name]["comps"][comp] = {}
+                    diag_data[name]["comps"][comp]["array"] = arr
+                    diag_data[name]["comps"][comp]["position"] = pos
+            else:
+                diag_data[name]["array"] = array2[0]
+                diag_data[name]["position"] = pos
+
+            diag_data[name]["grid"] = {}
+            diag_data[name]["grid"]["spacing"] = grid_spacing
+            diag_data[name]["grid"]["labels"] = grid_labels
+            diag_data[name]["grid"]["global_offset"] = grid_global_offset
+            diag_data[name]["attributes"] = attrs if attrs is not None else {}
+
+        rho_norm = self.n_p * (-ct.e)
+        chi_norm = self.n_p * ct.e * ct.e * ct.mu_0 / ct.m_e
+
+        all_field_data_pre = self.field_diags
+
+        if not isinstance(all_field_data_pre, list):
+            all_field_data_pre = [all_field_data_pre]
+
+        all_field_data = [d for d in all_field_data_pre if not isinstance(d, str)]
+
+        if any(isinstance(d, str) for d in all_field_data_pre):
+            all_field_data.insert(
+                0, {"field": [d for d in all_field_data_pre if isinstance(d, str)]}
+            )
+
+        for idx, i_field_data in enumerate(all_field_data):
+            if isinstance(i_field_data, dict):
+                options = i_field_data
+                allowed_options = [
+                    "field",
+                    "r_min",
+                    "r_max",
+                    "xi_min",
+                    "xi_max",
+                    "r_stride",
+                    "xi_stride",
+                    "do_transpose",
+                    "diag_name",
                 ]
-            ]
-        if "B" in self.field_diags:
-            fld_names += ["B"]
-            fld_comps += [["r", "t", "z"]]
-            fld_attrs += [{}]
-            fld_arrays += [
-                [
-                    np.ascontiguousarray(self.b_r.T[2:-2, 2:-2]),
-                    np.ascontiguousarray(self.b_t.T[2:-2, 2:-2]),
-                    np.ascontiguousarray(self.b_z.T[2:-2, 2:-2]),
-                ]
-            ]
-        if "rho" in self.field_diags:
-            fld_names += ["rho"]
-            fld_comps += [None]
-            fld_attrs += [{}]
-            fld_arrays += [[np.ascontiguousarray(self.rho.T[2:-2, 2:-2]) * rho_norm]]
-        if self.species_rho_diags:
-            if "rho_e" in self.field_diags:
-                fld_names += ["rho_e"]
-                fld_comps += [None]
-                fld_attrs += [{}]
-                fld_arrays += [
-                    [np.ascontiguousarray(self.rho_e.T[2:-2, 2:-2]) * rho_norm]
-                ]
-            if "rho_i" in self.field_diags:
-                fld_names += ["rho_i"]
-                fld_comps += [None]
-                fld_attrs += [{}]
-                fld_arrays += [
-                    [np.ascontiguousarray(self.rho_i.T[2:-2, 2:-2]) * rho_norm]
-                ]
-        if self.laser is not None:
-            if "a_mod" in self.field_diags:
-                a_mod = np.abs(self.laser.get_envelope().T)
-                fld_names += ["a_mod"]
-                fld_comps += [None]
-                fld_attrs += [{"polarization": self.laser.polarization}]
-                fld_arrays += [[np.ascontiguousarray(a_mod)]]
-            if "a_phase" in self.field_diags:
-                a_phase = np.angle(self.laser.get_envelope().T)
-                fld_names += ["a_phase"]
-                fld_comps += [None]
-                fld_attrs += [{}]
-                fld_arrays += [[np.ascontiguousarray(a_phase)]]
-            if "a" in self.field_diags:
-                a = self.laser.get_envelope().T
-                fld_names += ["a"]
-                fld_comps += [None]
+                for o in options.keys():
+                    if o not in allowed_options:
+                        raise ValueError(
+                            f"Unknown field_diags option {o}, must be in {allowed_options}"
+                        )
+            else:
+                raise ValueError(
+                    f"field_diags must be list of str or dict, but got {i_field_data}"
+                )
+
+            if "diag_name" not in options:
+                options["diag_name"] = "diag" + str(idx)
+
+            fields = options["field"] if "field" in options else "all"
+            if isinstance(fields, str):
+                fields = [fields]
+
+            available_fields = ["all"]
+
+            # Add requested fields to diagnostics.
+            available_fields.append("E")
+            if "E" in fields or "all" in fields:
+                add_diag(
+                    options, "E", [self.e_r, self.e_t, self.e_z], comps=["r", "t", "z"]
+                )
+            available_fields.append("B")
+            if "B" in fields or "all" in fields:
+                add_diag(
+                    options, "B", [self.b_r, self.b_t, self.b_z], comps=["r", "t", "z"]
+                )
+            available_fields.append("rho")
+            if "rho" in fields or "all" in fields:
+                add_diag(options, "rho", [self.rho], factor=rho_norm)
+            if self.species_rho_diags:
+                available_fields.append("rho_e")
+                if "rho_e" in fields or "all" in fields:
+                    add_diag(options, "rho_e", [self.rho_e], factor=rho_norm)
+                available_fields.append("rho_i")
+                if "rho_i" in fields or "all" in fields:
+                    add_diag(options, "rho_i", [self.rho_i], factor=rho_norm)
+            if self.laser is not None:
                 if self.laser.polarization == "linear":
                     pol = np.array([1, 0j])
                 else:
                     pol = np.array([np.sqrt(1 / 2), np.sqrt(1 / 2) * 1j])
-                fld_attrs += [
-                    {
-                        "envelopeField": "normalized_vector_potential",
-                        "angularFrequency": 2 * np.pi * ct.c / self.laser.l_0,
-                        "polarization": pol,
-                    }
-                ]
-                fld_arrays += [[np.ascontiguousarray(a)]]
+                laser_attrs = {
+                    "envelopeField": "normalized_vector_potential",
+                    "angularFrequency": 2 * np.pi * ct.c / self.laser.l_0,
+                    "polarization": pol,
+                }
 
-        fld_comp_pos = [fld_position] * len(fld_names)
+                available_fields.append("a_mod")
+                if "a_mod" in fields or "all" in fields:
+                    add_diag(
+                        options,
+                        "a_mod",
+                        [np.abs(self.laser.get_envelope())],
+                        nghost=None,
+                        attrs={"polarization": self.laser.polarization},
+                    )
+                available_fields.append("a_phase")
+                if "a_phase" in fields or "all" in fields:
+                    add_diag(
+                        options,
+                        "a_phase",
+                        [np.angle(self.laser.get_envelope())],
+                        nghost=None,
+                    )
+                available_fields.append("a")
+                if "a" in fields or "all" in fields:
+                    add_diag(
+                        options,
+                        "a",
+                        [self.laser.get_envelope()],
+                        nghost=None,
+                        attrs=laser_attrs,
+                    )
+                if self.laser.use_subgrid:
+                    available_fields.append("a_subgrid")
+                    if "a_subgrid" in fields or "all" in fields:
+                        add_diag(
+                            options,
+                            "a_subgrid",
+                            [self.laser._a_env[:-2]],
+                            nghost=None,
+                            grid_spacing_xi=self.laser.subgrid_params["subgrid"]["dz"],
+                            grid_spacing_r=self.laser.subgrid_params["subgrid"]["dr"],
+                            attrs=laser_attrs,
+                        )
+                available_fields.append("chi")
+                if "chi" in fields or "all" in fields:
+                    add_diag(options, "chi", [self.chi], factor=chi_norm)
+            if "ion_densities" in self.__dict__:
+                for i in range(len(self.ion_atomic_number)):
+                    for j in range(self.ion_atomic_number[i] + 1):
+                        name = f"n_{self.ion_names[i]}_ionlevel_{j}"
+                        available_fields.append(name)
+                        if name in fields or "all" in fields:
+                            add_diag(
+                                options,
+                                name,
+                                [self.ion_densities[self.ion_start_index[i] + j, :, :]],
+                                factor=self.n_p,
+                            )
+            if "elec_density" in self.__dict__:
+                available_fields.append("n_electrons")
+                if "n_electrons" in fields or "all" in fields:
+                    add_diag(
+                        options, "n_electrons", [self.elec_density], factor=self.n_p
+                    )
 
-        # Generate dictionary for openPMD diagnostics.
-        diag_data = generate_field_diag_dictionary(
-            fld_names,
-            fld_comps,
-            fld_attrs,
-            fld_arrays,
-            fld_comp_pos,
-            grid_labels,
-            grid_spacing,
-            grid_global_offset,
-            fld_solver,
-            fld_solver_params,
-            fld_boundary,
-            fld_boundary_params,
-            part_boundary,
-            part_boundary_params,
-            current_smoothing,
-            charge_correction,
-        )
+            for f in fields:
+                if f not in available_fields:
+                    raise ValueError(
+                        f"Diagnostic field {f} is not available! "
+                        + f"Available fields are {available_fields}"
+                    )
 
         return diag_data

@@ -129,8 +129,22 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         solver.
     field_diags : list, optional
         List of fields to save to openpmd diagnostics. By default ['rho', 'E',
-        'B', 'a_mod', 'a_phase'].
-    field_diags : list, optional
+        'B', 'a_mod', 'a_phase']. Can also be 'all'.
+        Each entry can also be a dict to give more precise control of the
+        outputted data. The dict can have the following keys:
+        {
+            "field" : list of field names to output
+            "r_min" , "r_max" , "xi_min" , "xi_max" :
+                Cut the diagnostic box in r and xi.
+            "r_stride" , "xi_stride" :
+                Add a stride in units of dr and dxi to r and xi.
+            "do_transpose" :
+                Wheater to transpose data for the output (default True).
+            "diag_name" :
+                Name to append to the field name if there are multiple
+                diagnostics with the same field.
+        }
+    particle_diags : list, optional
         List of particle quantities to save to openpmd diagnostics. By default
         [].
     use_adaptive_grids : bool, optional
@@ -200,12 +214,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         laser_envelope_nxi: Optional[int] = None,
         laser_envelope_nr: Optional[int] = None,
         laser_envelope_use_phase: Optional[bool] = True,
-        field_diags: Optional[List[str]] = [
-            "rho",
-            "E",
-            "B",
-            "a",
-        ],
+        field_diags: Optional[List[str]] = None,
         particle_diags: Optional[List[str]] = [],
         use_adaptive_grids: Optional[bool] = False,
         adaptive_grid_nr: Optional[Union[int, List[int]]] = 16,
@@ -259,6 +268,10 @@ class Quasistatic2DWakefieldIon(RZWakefield):
         if len(self.ppc.shape) in [0, 1]:
             self.ppc = np.array([[self.r_max_plasma, self.ppc.flatten()[0]]])
         self.parabolic_coefficient = parabolic_coefficient
+        if field_diags is None:
+            field_diags = ["rho", "E", "B"]
+            if laser is not None:
+                field_diags.append("a")
 
         super().__init__(
             density_function=density_function,
@@ -517,7 +530,25 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 )
 
         # Calculate rho only if requested in the diagnostics.
-        calculate_rho = any("rho" in diag for diag in self.field_diags)
+        calculate_rho = any(
+            (
+                any(
+                    "rho" in f or f == "all"
+                    for f in (
+                        diag["field"]
+                        if isinstance(diag["field"], list)
+                        else [diag["field"]]
+                    )
+                )
+                if isinstance(diag, dict) and "field" in diag
+                else "rho" in diag or diag == "all"
+            )
+            for diag in (
+                self.field_diags
+                if isinstance(self.field_diags, list)
+                else [self.field_diags]
+            )
+        )
 
         # Calculate plasma wakefields.
         if is_ic:
