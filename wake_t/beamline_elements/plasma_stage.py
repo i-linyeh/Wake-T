@@ -23,6 +23,8 @@ wakefield_models = {
     "quasistatic_2d_legacy": wf.Quasistatic2DWakefield,
     "quasistatic_2d": wf.Quasistatic2DWakefieldIon,  # For backward compatibility
     "quasistatic_2d_ion": wf.Quasistatic2DWakefieldIon,
+    "laser_static_plasma": wf.LaserStaticPlasma,
+    "laser_grid_ionization": wf.LaserGridIonization,
 }
 
 
