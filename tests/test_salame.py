@@ -133,7 +133,6 @@ def run_simulation(output_folder):
             "E",
             "B",
             "charge_profile",
-            "charge_profile_salame",
         ],
         use_adaptive_grids=False,
         adaptive_grid_r_max=adaptive_grid_r_max,
@@ -183,12 +182,15 @@ def test_salame(plot=False):
     dz = z[1] - z[0]
     nr = Ez.shape[0]
 
-    # Read SALAME bunch charge profile.
-    q_bunch, _ = ts.get_field(iteration=it, field="charge_profile_salame")
+    # Read the deposited beam charge profile (driver + witness).
+    q_bunch, _ = ts.get_field(iteration=it, field="charge_profile")
 
     # Convert to (z, r) ordering for easier processing.
     Ez_zr = Ez.T
     q_bunch_zr = q_bunch.T
+
+    witness_mask = z < -20e-6
+    q_bunch_zr = q_bunch_zr * witness_mask[:, np.newaxis]
 
     # Compute line charge and current profile.
     g_xi = np.sum(q_bunch_zr[:, int(nr / 2) :], axis=1)
@@ -231,7 +233,7 @@ def test_salame(plot=False):
         ax1.set_xlabel(r"$\xi$ [$\mu$m]")
         ax1.set_ylabel(r"Current [A]", color="red")
         ax1.tick_params(axis="y", colors="red")
-        ax1.set_xlim(z[indices[0]] / 1e-6 - 2, z[indices[-1]] / 1e-6 + 2)
+        ax1.set_xlim(z[indices[0] / 1e-6 - 2, z[indices[-1]] / 1e-6 + 2)
         ax1.set_ylim(-22000, 1200)
 
         ax2 = ax1.twinx()

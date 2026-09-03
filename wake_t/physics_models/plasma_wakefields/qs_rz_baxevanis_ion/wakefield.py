@@ -731,36 +731,6 @@ class Quasistatic2DWakefieldIon(RZWakefield):
 
     def _get_openpmd_diagnostics_data(self, global_time):
         diag_data = super()._get_openpmd_diagnostics_data(global_time)
-        # Add q_bunch to diagnostics if requested.
-        s_d = ct.c / np.sqrt(ct.e**2 * self.n_p / (ct.m_e * ct.epsilon_0))
-
-        k = 1.0 / (2 * np.pi * ct.e * self.dr * self.dxi * s_d * self.n_p)
-
-        if "charge_profile" in self.field_diags:
-            diag_data["fields"].append("charge_profile")
-            diag_data["charge_profile"] = {
-                "array": np.ascontiguousarray(self.q_bunch.T[2:-2, 2:-2] / k),
-                "position": [0.5, 0.0],
-                "grid": {
-                    "spacing": [self.dr, self.dxi],
-                    "labels": ["r", "z"],
-                    "global_offset": [0.0, global_time * ct.c + self.xi_min],
-                },
-                "attributes": {},
-            }
-
-        if "charge_profile_salame" in self.field_diags:
-            diag_data["fields"].append("charge_profile_salame")
-            diag_data["charge_profile_salame"] = {
-                "array": np.ascontiguousarray(self.q_var.T[2:-2, 2:-2] / k),
-                "position": [0.5, 0.0],
-                "grid": {
-                    "spacing": [self.dr, self.dxi],
-                    "labels": ["r", "z"],
-                    "global_offset": [0.0, global_time * ct.c + self.xi_min],
-                },
-                "attributes": {},
-            }
 
         # Add fields from adaptive grids to openpmd diagnostics.
         if self.use_adaptive_grids:
