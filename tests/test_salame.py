@@ -233,7 +233,7 @@ def test_salame(plot=False):
         ax1.set_xlabel(r"$\xi$ [$\mu$m]")
         ax1.set_ylabel(r"Current [A]", color="red")
         ax1.tick_params(axis="y", colors="red")
-        ax1.set_xlim(z[indices[0] / 1e-6 - 2, z[indices[-1]] / 1e-6 + 2)
+        ax1.set_xlim(z[indices[0]] / 1e-6 - 2, z[indices[-1]] / 1e-6 + 2)
         ax1.set_ylim(-22000, 1200)
 
         ax2 = ax1.twinx()
