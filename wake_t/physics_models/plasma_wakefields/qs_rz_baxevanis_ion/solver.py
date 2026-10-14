@@ -389,9 +389,15 @@ def calculate_wakefields_salame(
     calculate_rho=True,
     particle_diags=None,
     fld_arrays=None,
+    salame_driver_mode=False,
 ):
     """
     Full wakefield solve with inline SALAME bisection.
+
+    If ``salame_driver_mode`` is True, the self-seeded "driver SALAME" bracket
+    is used: Ez is positive behind the seed and grows with the slice charge, so
+    each slice is bracketed from its full deposit down to zero charge. The loop
+    range is identical to the beam-driven case (``k_tail`` is not shaped).
 
     Compared to the two-pass approach (beamloading_initial_condition +
     calculate_wakefields), this function performs a single plasma initialization
@@ -615,8 +621,14 @@ def calculate_wakefields_salame(
     qv_current = q_var.copy()
 
     for k in range(k_head, k_tail, -1):
-        if np.abs(g_line_var0[k]) == 0.0:
-            # No witness charge at this slice — just advance pp_state
+        if np.abs(g_line_var0[k]) == 0.0 or (
+            salame_driver_mode and k == k_head
+        ):
+            # No witness charge at this slice, or (driver mode) the first
+            # witness cell k_head, which is the reference whose Ez defines the
+            # target: keep the deposited charge and just advance pp_state.
+            # Shaping k_head would mean tuning it against Ez at k_head-1, a
+            # frozen seed cell that barely responds — an ill-conditioned step.
             q_bunch[:] = q_fixed + qv_current
             calculate_bunch_source_slice(q_bunch, n_r, k, b_t_bunch)
             evolve_one_step(
@@ -649,20 +661,44 @@ def calculate_wakefields_salame(
             )
             continue
 
-        g_min = -1e-100
-        g_max = 5.0 * g_line_var0[k]
+        # Bracket the slice line-charge. The bisection core below keeps the
+        # convention that (g_min, Ez_min) is the endpoint with the larger |Ez|
+        # and (g_max, Ez_max) the one with the smaller |Ez|.
+        driver_bail_g = None
+        if salame_driver_mode:
+            # Driver-mode SALAME: Ez is positive behind the seed and grows
+            # monotonically with the slice charge (the trailing cells reinforce
+            # the seed wake). The natural deposit puts Ez above the target, so
+            # bracket from the full deposit (larger |Ez|) down to zero charge.
+            g_min = g_line_var0[k]
+            g_max = 0.0
+            Ez_min = _eval_ez_weighted_km1(
+                _set_var_slice(qv_current, k, g_min), pp_state, k
+            )
+            Ez_max = _eval_ez_weighted_km1(
+                _set_var_slice(qv_current, k, g_max), pp_state, k
+            )
+            if np.abs(Ez_max) > np.abs(Ez_target):
+                # Even zero charge overshoots — nothing to reduce.
+                driver_bail_g = 0.0
+            elif np.abs(Ez_min) < np.abs(Ez_target):
+                # Full deposit still undershoots — keep it (do not add charge).
+                driver_bail_g = g_line_var0[k]
+        else:
+            g_min = -1e-100
+            g_max = 5.0 * g_line_var0[k]
 
-        qv_min = _set_var_slice(qv_current, k, g_min)
-        qv_max = _set_var_slice(qv_current, k, g_max)
-        Ez_min = _eval_ez_weighted_km1(qv_min, pp_state, k)
-        Ez_max = _eval_ez_weighted_km1(qv_max, pp_state, k)
-
-        while np.abs(Ez_max) > np.abs(Ez_target):
-            g_max *= 5.0
+            qv_min = _set_var_slice(qv_current, k, g_min)
             qv_max = _set_var_slice(qv_current, k, g_max)
+            Ez_min = _eval_ez_weighted_km1(qv_min, pp_state, k)
             Ez_max = _eval_ez_weighted_km1(qv_max, pp_state, k)
-            if g_max == 0.0 or not np.isfinite(g_max):
-                break
+
+            while np.abs(Ez_max) > np.abs(Ez_target):
+                g_max *= 5.0
+                qv_max = _set_var_slice(qv_current, k, g_max)
+                Ez_max = _eval_ez_weighted_km1(qv_max, pp_state, k)
+                if g_max == 0.0 or not np.isfinite(g_max):
+                    break
 
         qv_new = qv_current
         for _ in range(salame_max_iter):
@@ -670,7 +706,17 @@ def calculate_wakefields_salame(
             if den == 0.0:
                 break
 
-            if Ez_target < Ez_min:
+            if salame_driver_mode:
+                if driver_bail_g is not None:
+                    qv_new = _set_var_slice(qv_current, k, driver_bail_g)
+                    if driver_bail_g == 0.0:
+                        print(
+                            f"SALAME cannot match the target Ez for slice {k} "
+                            f"at xi= {xi_fld[k]}. The charge at this slice is "
+                            f"set as 0."
+                        )
+                    break
+            elif Ez_target < Ez_min:
                 g_new = g_min
                 qv_new = _set_var_slice(qv_current, k, g_new)
                 print(
@@ -725,6 +771,31 @@ def calculate_wakefields_salame(
             tuple(particle_diags),
             k,
             k,
+        )
+
+    if salame_driver_mode and k_head > k_tail and g_line_var0[k_tail] != 0.0:
+        # The last occupied cell k_tail is not shaped by the loop: its Ez
+        # control point (k_tail-1) lies outside the bunch, where flatness is
+        # not physically meaningful. Rather than leave it at the raw deposit
+        # (a spike for a flat-topped driver) or force flatness in vacuum
+        # (charge pile-up), continue the shaped taper onto it by extrapolating
+        # the shaping ratio (shaped / deposited line charge) of the cells in
+        # front of it. The ratio is clipped to [0, 1] so it can never
+        # re-introduce a spike or flip sign.
+        r1 = (
+            float(np.sum(qv_current[2 + k_tail + 1, 2:-2]))
+            / g_line_var0[k_tail + 1]
+        )
+        if k_head > k_tail + 1 and g_line_var0[k_tail + 2] != 0.0:
+            r2 = (
+                float(np.sum(qv_current[2 + k_tail + 2, 2:-2]))
+                / g_line_var0[k_tail + 2]
+            )
+            r_tail = min(1.0, max(0.0, 2.0 * r1 - r2))
+        else:
+            r_tail = min(1.0, max(0.0, r1))
+        qv_current = _set_var_slice(
+            qv_current, k_tail, r_tail * g_line_var0[k_tail]
         )
 
     # -------------------------------------------------------------------

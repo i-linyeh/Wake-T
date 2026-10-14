@@ -349,6 +349,19 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 "Set use_adaptive_grids=False or do_salame=False."
             )
         is_ic = use_salame and not self._initial_condition_done
+        # Driver-mode SALAME: the SALAME bunch has no laser and no other bunch
+        # in front of it, so its two front-most cells act as the fixed "seed"
+        # that sets the target Ez and every cell behind them is shaped.
+        driver_salame = (
+            is_ic
+            and self.laser is None
+            and not any(
+                b is not witness
+                and len(b.xi) > 0
+                and np.max(b.xi) >= np.max(witness.xi) - 2.0 * self.dxi
+                for b in bunches
+            )
+        )
 
         # Initialize empty lists with correct type so that numba can use
         # them even if there are no bunch sources.
@@ -494,6 +507,26 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                     self.q_var,
                 )
                 self.q_bunch[:] = q_fixed + self.q_var
+                if driver_salame:
+                    # No leading beam/laser: move the two front-most cells of
+                    # the SALAME bunch from the shaped part (q_var) into the
+                    # fixed seed (q_fixed). Those two cells set the target Ez;
+                    # everything behind them is shaped by the bisection.
+                    g_line = np.sum(self.q_var[2:-2, 2:-2], axis=1)
+                    occ = np.flatnonzero(np.abs(g_line) > 0.0)
+                    if occ.size < 3:
+                        raise ValueError(
+                            "Driver-mode SALAME needs the SALAME bunch to span "
+                            "at least 3 longitudinal cells (2 seed + witness)."
+                        )
+                    j_head = int(occ[-1])
+                    seed = slice(2 + j_head - 1, 2 + j_head + 1)
+                    q_fixed[seed, :] += self.q_var[seed, :]
+                    self.q_var[seed, :] = 0.0
+                    self.q_bunch[:] = q_fixed + self.q_var
+                    self._salame_seed_xi_lo = (
+                        self.xi_fld[j_head - 1] - 0.5 * self.dxi
+                    )
                 # calculate_wakefields_salame_inline builds its own source
                 # internally from q_fixed and q_var — no append needed here.
             else:
@@ -596,6 +629,7 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 calculate_rho=calculate_rho,
                 particle_diags=self.particle_diags,
                 fld_arrays=self.fld_arrays,
+                salame_driver_mode=driver_salame,
             )
 
             # Gather from shaped q_var and apply the ratio as a per-particle
@@ -615,7 +649,13 @@ class Quasistatic2DWakefieldIon(RZWakefield):
                 use_ruyten=True,
             )
             safe_old = np.where(np.abs(w_gathered_old) > 0, w_gathered_old, 1.0)
-            witness.w[:] = witness.w * (w_gathered_new / safe_old)
+            ratio = w_gathered_new / safe_old
+            if driver_salame:
+                # Seed-cell particles are no longer in q_var; keep their weight.
+                ratio = np.where(
+                    witness.xi >= self._salame_seed_xi_lo, 1.0, ratio
+                )
+            witness.w[:] = witness.w * ratio
             ProfStop("salame.initial_condition")
         else:
             self.pp = calculate_wakefields(
